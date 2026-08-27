@@ -42,7 +42,7 @@ function setupXtreamInterceptor() {
             }
         }
 
-        if (urlStr.includes('/proxy/http') || urlStr.includes('/proxy/https')) {
+        if (urlStr.includes('/proxy/')) {
             try {
                 const response = await handleProxyRequest(urlStr);
                 return response;
@@ -78,8 +78,8 @@ async function handleProxyRequest(urlStr) {
     const res = await fetch(targetUrl);
     const contentType = res.headers.get('content-type') || '';
 
-    // If response is an m3u8 playlist, rewrite relative /proxy/ lines to absolute URLs
-    if (contentType.includes('mpegurl') || proxyPath.includes('.m3u8')) {
+    // If response is an m3u8 playlist or octet-stream manifest, rewrite relative /proxy/ lines to absolute URLs
+    if (contentType.includes('mpegurl') || contentType.includes('octet-stream') || proxyPath.includes('.m3u8')) {
         const text = await res.text();
         const rewritten = text
             .replace(/URI=["']\/proxy\//gi, `URI="${serverOrigin}/proxy/`)
@@ -427,30 +427,35 @@ async function handleStream(source, type, id) {
         const liveStreams = await fetchLiveStreamsCached(server, username, password);
         const item = liveStreams.find((s) => String(s.stream_id) === String(streamId));
 
-        if (item && item.stream_url && (item.stream_url.endsWith('.m3u8') || item.stream_url.endsWith('.ts'))) {
-            streams.push({
-                name: 'RukaTv IPTV',
-                title: (item && item.name) || 'Canal en Vivo',
-                url: item.stream_url,
-                type: item.stream_url.endsWith('.m3u8') ? 'hls' : undefined,
-                behaviorHints: { notSupported: false }
-            });
-        }
-
-        // Direct Xtream live streams (m3u8 and ts)
+        // Primary HLS stream (m3u8)
         streams.push({
-            name: 'RukaTv IPTV (HLS)',
-            title: 'Canal en Vivo (m3u8)',
+            name: 'RukaTv Canales (HLS)',
+            title: (item && item.name) || 'Canal en Vivo',
             url: `${server}/live/${u}/${p}/${streamId}.m3u8`,
             type: 'hls',
             behaviorHints: { notSupported: false }
         });
-        streams.push({
-            name: 'RukaTv IPTV (TS)',
-            title: 'Canal en Vivo (ts)',
-            url: `${server}/live/${u}/${p}/${streamId}.ts`,
-            behaviorHints: { notSupported: false }
-        });
+
+        // Support custom container extension if specified (e.g. mp4, m3u8)
+        if (item && item.container_extension && item.container_extension !== 'm3u8') {
+            streams.push({
+                name: `RukaTv Canales (${item.container_extension.toUpperCase()})`,
+                title: (item && item.name) || 'Canal en Vivo',
+                url: `${server}/live/${u}/${p}/${streamId}.${item.container_extension}`,
+                behaviorHints: { notSupported: false }
+            });
+        }
+
+        // Direct stream_url if provided in channel metadata
+        if (item && item.stream_url && typeof item.stream_url === 'string' && item.stream_url.startsWith('http')) {
+            streams.push({
+                name: 'RukaTv Direct',
+                title: item.name || 'Canal Directo',
+                url: item.stream_url,
+                type: item.stream_url.includes('.m3u8') ? 'hls' : undefined,
+                behaviorHints: { notSupported: false }
+            });
+        }
 
     } else if (id.includes('_vod_')) {
         const streamId = id.split('_vod_')[1];
