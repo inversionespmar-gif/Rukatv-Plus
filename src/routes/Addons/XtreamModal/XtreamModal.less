@@ -1,0 +1,234 @@
+// Copyright (C) RukaTv - Xtream Codes Modal Styles
+
+@import (reference) '~@stremio/stremio-colors/less/stremio-colors.less';
+@import (reference) '~rukautv/common/screen-sizes.less';
+
+:import('~rukautv/components/ModalDialog/styles.less') {
+    xtream-modal-content: modal-dialog-content;
+    xtream-cancel-label: label;
+}
+
+.xtream-modal-container {
+    .xtream-modal-content {
+        width: 36rem;
+        max-width: 95vw;
+
+        .form-container {
+            display: flex;
+            flex-direction: column;
+            gap: 1.2rem;
+
+            .form-description {
+                font-size: 0.95rem;
+                line-height: 1.5;
+                color: var(--primary-foreground-color);
+                opacity: 0.8;
+                margin-bottom: 0.5rem;
+            }
+
+            .field-group {
+                display: flex;
+                flex-direction: column;
+                gap: 0.4rem;
+
+                .field-label {
+                    font-size: 0.8rem;
+                    font-weight: 600;
+                    text-transform: uppercase;
+                    letter-spacing: 0.08em;
+                    color: var(--primary-foreground-color);
+                    opacity: 0.65;
+                }
+
+                .text-input {
+                    width: 100%;
+                    padding: 0.85rem 1rem;
+                    font-size: 1rem;
+                    color: var(--primary-foreground-color);
+                    border-radius: var(--border-radius);
+                    background-color: var(--overlay-color);
+                    outline: 2px solid transparent;
+                    outline-offset: -2px;
+                    transition: outline-color 0.15s ease;
+
+                    &:hover {
+                        outline-color: rgba(255, 255, 255, 0.3);
+                    }
+
+                    &:focus {
+                        outline-color: var(--secondary-accent-color);
+                    }
+
+                    &:disabled {
+                        opacity: 0.5;
+                        cursor: not-allowed;
+                    }
+                }
+            }
+
+            .loading-container {
+                display: flex;
+                align-items: center;
+                gap: 0.8rem;
+                padding: 0.8rem 1rem;
+                border-radius: var(--border-radius);
+                background-color: rgba(255, 255, 255, 0.05);
+
+                .spinner {
+                    flex: none;
+                    width: 1.2rem;
+                    height: 1.2rem;
+                    border: 2px solid rgba(255, 255, 255, 0.2);
+                    border-top-color: var(--secondary-accent-color);
+                    border-radius: 50%;
+                    animation: xtream-spin 0.8s linear infinite;
+                }
+
+                .loading-text {
+                    flex: 1;
+                    font-size: 0.9rem;
+                    color: var(--primary-foreground-color);
+                    opacity: 0.8;
+                }
+            }
+
+            .error-container {
+                display: flex;
+                align-items: flex-start;
+                gap: 0.6rem;
+                padding: 0.75rem 1rem;
+                border-radius: var(--border-radius);
+                background-color: rgba(220, 38, 38, 0.15);
+                border: 1px solid rgba(220, 38, 38, 0.4);
+
+                .error-icon {
+                    flex: none;
+                    font-size: 1rem;
+                    color: #ef4444;
+                    margin-top: 0.05rem;
+                }
+
+                .error-text {
+                    flex: 1;
+                    font-size: 0.9rem;
+                    color: #fca5a5;
+                    line-height: 1.4;
+                }
+            }
+
+            .info-container {
+                display: flex;
+                align-items: flex-start;
+                gap: 0.6rem;
+                padding: 0.7rem 1rem;
+                border-radius: var(--border-radius);
+                background-color: rgba(255, 255, 255, 0.04);
+
+                .info-icon {
+                    flex: none;
+                    font-size: 0.9rem;
+                    color: var(--primary-foreground-color);
+                    opacity: 0.4;
+                    margin-top: 0.1rem;
+                }
+
+                .info-text {
+                    flex: 1;
+                    font-size: 0.8rem;
+                    line-height: 1.4;
+                    color: var(--primary-foreground-color);
+                    opacity: 0.45;
+                }
+            }
+        }
+
+        .success-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            text-align: center;
+            gap: 0.8rem;
+            padding: 1rem 0;
+
+            .success-icon {
+                width: 4rem;
+                height: 4rem;
+                border-radius: 50%;
+                background: linear-gradient(135deg, #7c3aed, #a855f7);
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                font-size: 2rem;
+                color: white;
+                box-shadow: 0 0 30px rgba(168, 85, 247, 0.5);
+                animation: xtream-pop-in 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+            }
+
+            .success-title {
+                font-size: 1.3rem;
+                font-weight: 700;
+                color: var(--primary-foreground-color);
+            }
+
+            .success-desc {
+                font-size: 0.95rem;
+                line-height: 1.5;
+                color: var(--primary-foreground-color);
+                opacity: 0.7;
+                max-width: 26rem;
+            }
+        }
+    }
+
+    .connect-button {
+        background: linear-gradient(135deg, #7c3aed, #a855f7) !important;
+
+        &:hover {
+            background: linear-gradient(135deg, #6d28d9, #9333ea) !important;
+            outline: none !important;
+        }
+
+        &:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+    }
+
+    .cancel-button {
+        background-color: transparent;
+        opacity: 0.4;
+
+        &:hover {
+            outline: var(--focus-outline-size) solid var(--primary-foreground-color);
+            opacity: 1;
+        }
+
+        .xtream-cancel-label {
+            color: var(--primary-foreground-color);
+        }
+    }
+}
+
+@keyframes xtream-spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+@keyframes xtream-pop-in {
+    from {
+        transform: scale(0.5);
+        opacity: 0;
+    }
+    to {
+        transform: scale(1);
+        opacity: 1;
+    }
+}
+
+@media only screen and (max-width: @minimum) {
+    .xtream-modal-container {
+        .xtream-modal-content {
+            width: auto;
+        }
+    }
+}

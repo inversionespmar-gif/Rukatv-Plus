@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 72" width="240" height="72">
+  <defs>
+    <linearGradient id="purpleGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#C084FC;stop-opacity:1" />
+      <stop offset="50%" style="stop-color:#A855F7;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#7C3AED;stop-opacity:1" />
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="2" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+  <!-- R letter with purple gradient and glow -->
+  <text x="8" y="58" font-family="Arial Black, Arial, sans-serif" font-size="60" font-weight="900" fill="url(#purpleGrad)" filter="url(#glow)">R</text>
+  <!-- Orbital ring swoosh -->
+  <ellipse cx="36" cy="36" rx="34" ry="10" fill="none" stroke="white" stroke-width="2.5" stroke-dasharray="60 50" opacity="0.9" transform="rotate(-30 36 36)"/>
+  <!-- RukaTv text -->
+  <text x="82" y="46" font-family="Arial, sans-serif" font-size="28" font-weight="bold" fill="#FFFFFF" letter-spacing="1">ukaTv</text>
+</svg>
