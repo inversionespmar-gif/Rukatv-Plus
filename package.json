@@ -11,9 +11,9 @@
         "lint": "eslint src",
         "scan-translations": "pnpx jest ./tests/i18nScan.test.js"
     },
+    "packageManager": "pnpm@10.5.2",
     "engines": {
-        "node": ">=22",
-        "pnpm": ">=11"
+        "node": ">=20"
     },
     "dependencies": {
         "@babel/runtime": "7.29.2",
