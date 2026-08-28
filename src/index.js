@@ -24,6 +24,7 @@ const App = require('./App');
 const { default: WebUpdateScreen } = require('./App/WebUpdateScreen');
 const { CoreProvider } = require('./core');
 const { FileDropProvider, PlatformProvider } = require('./common');
+const { SupabaseAuthProvider } = require('./common/SupabaseAuthContext');
 
 const translations = Object.fromEntries(Object.entries(stremioTranslations()).map(([key, value]) => [key, {
     translation: value
@@ -50,14 +51,16 @@ root.render(
     <React.StrictMode>
         <PlatformProvider>
             <CoreProvider appInfo={appInfo}>
-                <FileDropProvider>
-                    <HashRouter>
-                        <>
-                            <WebUpdateScreen />
-                            <App />
-                        </>
-                    </HashRouter>
-                </FileDropProvider>
+                <SupabaseAuthProvider>
+                    <FileDropProvider>
+                        <HashRouter>
+                            <>
+                                <WebUpdateScreen />
+                                <App />
+                            </>
+                        </HashRouter>
+                    </FileDropProvider>
+                </SupabaseAuthProvider>
             </CoreProvider>
         </PlatformProvider>
     </React.StrictMode>

@@ -1,7 +1,7 @@
 import React, { useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useCore } from 'rukautv/core';
 import { Link } from '../../components';
+import useSupabaseAuth from 'rukautv/common/useSupabaseAuth';
 import styles from './User.less';
 
 type Props = {
@@ -10,7 +10,7 @@ type Props = {
 
 const User = ({ profile }: Props) => {
     const { t } = useTranslation();
-    const core = useCore();
+    const { logout } = useSupabaseAuth();
 
     const avatar = useMemo(() => (
         !profile.auth ?
@@ -23,13 +23,8 @@ const User = ({ profile }: Props) => {
     ), [profile.auth]);
 
     const onLogout = useCallback(() => {
-        core.transport.dispatch({
-            action: 'Ctx',
-            args: {
-                action: 'Logout'
-            }
-        });
-    }, []);
+        logout();
+    }, [logout]);
 
     return (
         <div className={styles['user']}>
