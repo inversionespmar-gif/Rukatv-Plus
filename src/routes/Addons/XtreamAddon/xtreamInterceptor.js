@@ -427,23 +427,33 @@ async function handleStream(source, type, id) {
         const liveStreams = await fetchLiveStreamsCached(server, username, password);
         const item = liveStreams.find((s) => String(s.stream_id) === String(streamId));
 
-        // Primary HLS stream (m3u8)
+        // HLS stream via playlist handler — rewrites m3u8 sub-playlist paths to /proxy/ so segments load correctly
         streams.push({
             name: 'RukaTv Canales (HLS)',
             title: (item && item.name) || 'Canal en Vivo',
-            url: `${server}/live/${u}/${p}/${streamId}.m3u8`,
+            url: `https://xtream.internal/${source.id}/playlist/live/${streamId}.m3u8`,
             type: 'hls',
             behaviorHints: { notSupported: false }
         });
 
         // Support custom container extension if specified (e.g. mp4, m3u8)
         if (item && item.container_extension && item.container_extension !== 'm3u8') {
-            streams.push({
-                name: `RukaTv Canales (${item.container_extension.toUpperCase()})`,
-                title: (item && item.name) || 'Canal en Vivo',
-                url: `${server}/live/${u}/${p}/${streamId}.${item.container_extension}`,
-                behaviorHints: { notSupported: false }
-            });
+            if (item.container_extension === 'mp4') {
+                streams.push({
+                    name: `RukaTv Canales (MP4)`,
+                    title: (item && item.name) || 'Canal en Vivo',
+                    url: `${server}/live/${u}/${p}/${streamId}.${item.container_extension}`,
+                    behaviorHints: { notSupported: false }
+                });
+            } else {
+                streams.push({
+                    name: `RukaTv Canales (${item.container_extension.toUpperCase()})`,
+                    title: (item && item.name) || 'Canal en Vivo',
+                    url: `https://xtream.internal/${source.id}/playlist/live/${streamId}.${item.container_extension}`,
+                    type: 'hls',
+                    behaviorHints: { notSupported: false }
+                });
+            }
         }
 
         // Direct stream_url if provided in channel metadata
@@ -463,16 +473,19 @@ async function handleStream(source, type, id) {
         const item = vodStreams.find((s) => String(s.stream_id) === String(streamId));
         const ext = (item && item.container_extension) || 'mp4';
 
-        // Direct Xtream server movie URLs
+        // MP4 direct — native HTML5 playback
         streams.push({
             name: 'RukaTv Direct MP4',
             title: (item && item.name) || 'Película (mp4)',
             url: `${server}/movie/${u}/${p}/${streamId}.${ext}`
         });
+
+        // HLS via playlist handler — rewrites m3u8 for proper segment loading
         streams.push({
             name: 'RukaTv Direct HLS',
             title: (item && item.name) || 'Película (m3u8)',
-            url: `${server}/movie/${u}/${p}/${streamId}.m3u8`
+            url: `https://xtream.internal/${source.id}/playlist/movie/${streamId}.m3u8`,
+            type: 'hls'
         });
 
         // Add external video URLs if they are direct video files
@@ -522,11 +535,11 @@ async function handleStream(source, type, id) {
         epStreamId = epStreamId.replace(/\.m3u8$/, '');
 
         if (epStreamId) {
-            // Direct server URL — same pattern as working movie streams.
+            // HLS via playlist handler — rewrites m3u8 for proper segment loading
             streams.push({
                 name: 'RukaTv Episodio',
                 title: 'Capítulo (HLS)',
-                url: `${server}/series/${u}/${p}/${epStreamId}.m3u8`,
+                url: `https://xtream.internal/${source.id}/playlist/series/${epStreamId}.m3u8`,
                 type: 'hls',
                 behaviorHints: { notSupported: false }
             });
