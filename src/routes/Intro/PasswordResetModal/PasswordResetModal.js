@@ -4,21 +4,31 @@ const React = require('react');
 const { useTranslation } = require('react-i18next');
 const PropTypes = require('prop-types');
 const { default: useRouteFocused } = require('rukautv/common/useRouteFocused');
-const { usePlatform } = require('rukautv/common');
 const { ModalDialog } = require('rukautv/components');
+const useSupabaseAuth = require('rukautv/common/useSupabaseAuth');
 const CredentialsTextInput = require('../CredentialsTextInput');
 const styles = require('./styles');
 
 const PasswordResetModal = ({ email, onCloseRequest }) => {
     const { t } = useTranslation();
     const routeFocused = useRouteFocused();
-    const platform = usePlatform();
+    const { resetPassword } = useSupabaseAuth();
     const [error, setError] = React.useState('');
     const emailRef = React.useRef(null);
-    const goToPasswordReset = React.useCallback(() => {
-        // Password reset disabled for privacy - would open strem.io with user's email
-        setError('Password reset disabled for privacy');
-    }, []);
+    const goToPasswordReset = React.useCallback(async () => {
+        try {
+            const emailValue = emailRef.current?.value || email || '';
+            if (!emailValue) {
+                setError('Please enter your email');
+                return;
+            }
+            await resetPassword(emailValue);
+            setError('');
+            onCloseRequest();
+        } catch (err) {
+            setError(err.message);
+        }
+    }, [email, resetPassword, onCloseRequest]);
     const passwordResetModalButtons = React.useMemo(() => {
         return [
             {

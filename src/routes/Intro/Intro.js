@@ -6,8 +6,8 @@ const { useSearchParams, useNavigate } = require('react-router-dom');
 const classnames = require('classnames');
 const { default: Icon } = require('@stremio/stremio-icons/react');
 const Modal = require('rukautv/router/Modal');
-const { useCore } = require('rukautv/core');
 const { useBinaryState } = require('rukautv/common');
+const useSupabaseAuth = require('rukautv/common/useSupabaseAuth');
 const { default: useRouteFocused } = require('rukautv/common/useRouteFocused');
 const { Button, Image, Checkbox } = require('rukautv/components');
 const CredentialsTextInput = require('./CredentialsTextInput');
@@ -21,9 +21,9 @@ const LOGIN_FORM = 'login';
 const Intro = () => {
     const [queryParams, setQueryParams] = useSearchParams();
     const navigate = useNavigate();
-    const core = useCore();
     const { t } = useTranslation();
     const routeFocused = useRouteFocused();
+    const { login, signup: supabaseSignup } = useSupabaseAuth();
     const emailRef = React.useRef(null);
     const passwordRef = React.useRef(null);
     const confirmPasswordRef = React.useRef(null);
@@ -82,22 +82,24 @@ const Intro = () => {
             error: ''
         }
     );
-    const loginWithFacebook = React.useCallback(() => {
-        // Facebook login disabled for privacy
-    }, []);
-    const cancelLoginWithFacebook = React.useCallback(() => {
-        // Facebook login disabled for privacy
-    }, []);
-    const loginWithApple = React.useCallback(() => {
-        // Apple login disabled for privacy
-    }, []);
-    const cancelLoginWithApple = React.useCallback(() => {
-        // Apple login disabled for privacy
-    }, []);
-    const loginWithEmail = React.useCallback(() => {
-        // Login disabled for privacy - credentials would be sent to RukaTv API
-        dispatch({ type: 'error', error: 'Login disabled for privacy' });
-    }, []);
+    const cancelLogin = React.useCallback(() => {
+        closeLoaderModal();
+    }, [closeLoaderModal]);
+    const loginWithEmail = React.useCallback(async () => {
+        if (!state.email || !state.password) {
+            dispatch({ type: 'error', error: 'Email and password are required' });
+            return;
+        }
+        openLoaderModal();
+        try {
+            await login(state.email, state.password);
+            closeLoaderModal();
+            navigate('/');
+        } catch (err) {
+            dispatch({ type: 'error', error: err.message });
+            closeLoaderModal();
+        }
+    }, [state.email, state.password, login, openLoaderModal, closeLoaderModal, navigate]);
     const loginAsGuest = React.useCallback(() => {
         if (!state.termsAccepted) {
             dispatch({ type: 'error', error: t('MUST_ACCEPT_TERMS') });
@@ -105,10 +107,29 @@ const Intro = () => {
         }
         navigate('/');
     }, [state.termsAccepted]);
-    const signup = React.useCallback(() => {
-        // Signup disabled for privacy - credentials would be sent to RukaTv API
-        dispatch({ type: 'error', error: 'Signup disabled for privacy' });
-    }, []);
+    const signup = React.useCallback(async () => {
+        if (!state.email || !state.password) {
+            dispatch({ type: 'error', error: 'Email and password are required' });
+            return;
+        }
+        if (state.password !== state.confirmPassword) {
+            dispatch({ type: 'error', error: 'Passwords do not match' });
+            return;
+        }
+        if (!state.termsAccepted) {
+            dispatch({ type: 'error', error: t('MUST_ACCEPT_TERMS') });
+            return;
+        }
+        openLoaderModal();
+        try {
+            await supabaseSignup(state.email, state.password);
+            closeLoaderModal();
+            navigate('/');
+        } catch (err) {
+            dispatch({ type: 'error', error: err.message });
+            closeLoaderModal();
+        }
+    }, [state.email, state.password, state.confirmPassword, state.termsAccepted, supabaseSignup, openLoaderModal, closeLoaderModal, navigate]);
     const emailOnChange = React.useCallback((event) => {
         dispatch({
             type: 'change-credentials',
@@ -171,27 +192,6 @@ const Intro = () => {
             emailRef.current.focus();
         }
     }, [state.form, routeFocused]);
-    React.useEffect(() => {
-        const onCoreEvent = (name) => {
-            if (name === 'UserAuthenticated') {
-                closeLoaderModal();
-                if (routeFocused) {
-                    navigate('/');
-                }
-            }
-        };
-        const onCoreError = (source) => {
-            if (source.event === 'UserAuthenticated') {
-                closeLoaderModal();
-            }
-        };
-        core.on('event', onCoreEvent);
-        core.on('error', onCoreError);
-        return () => {
-            core.off('event', onCoreEvent);
-            core.off('error', onCoreError);
-        };
-    }, [routeFocused]);
     return (
         <div className={styles['intro-container']}>
             <div className={styles['background-container']} />
@@ -315,7 +315,7 @@ const Intro = () => {
                         <div className={styles['loader-container']}>
                             <Icon className={styles['icon']} name={'person'} />
                             <div className={styles['label']}>{t('AUTHENTICATING')}</div>
-                            <Button className={styles['button']} onClick={cancelLoginWithFacebook && cancelLoginWithApple}>
+                            <Button className={styles['button']} onClick={cancelLogin}>
                                 {t('BUTTON_CANCEL')}
                             </Button>
                         </div>

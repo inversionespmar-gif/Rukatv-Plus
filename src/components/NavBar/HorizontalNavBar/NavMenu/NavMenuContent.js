@@ -6,7 +6,6 @@ const PropTypes = require('prop-types');
 const classnames = require('classnames');
 const { useTranslation } = require('react-i18next');
 const { default: Icon } = require('@stremio/stremio-icons/react');
-const { useCore } = require('rukautv/core');
 const { Button } = require('rukautv/components');
 const { useFullscreen } = require('rukautv/common/Fullscreen');
 const useProfile = require('rukautv/common/useProfile');
@@ -15,18 +14,19 @@ const { default: usePlayUrl } = require('rukautv/common/usePlayUrl');
 const useToast = require('rukautv/common/Toast/useToast');
 const { withCoreSuspender } = require('rukautv/common/CoreSuspender');
 const useStreamingServer = require('rukautv/common/useStreamingServer');
+const useSupabaseAuth = require('rukautv/common/useSupabaseAuth');
 const styles = require('./styles');
 
 const NavMenuContent = ({ onClick }) => {
     const { t } = useTranslation();
     const navigate = useNavigate();
-    const core = useCore();
     const profile = useProfile();
     const streamingServer = useStreamingServer();
     const { handlePlayUrl } = usePlayUrl();
     const toast = useToast();
     const [fullscreen, requestFullscreen, exitFullscreen, , supported] = useFullscreen();
     const [, isAndroidPWA] = usePWA();
+    const { logout } = useSupabaseAuth();
     const streamingServerWarningDismissed = React.useMemo(() => {
         return streamingServer.settings !== null && streamingServer.settings.type === 'Ready' || (
             !isNaN(profile.settings.streamingServerWarningDismissed.getTime()) &&
@@ -34,13 +34,8 @@ const NavMenuContent = ({ onClick }) => {
         );
     }, [profile.settings, streamingServer.settings]);
     const logoutButtonOnClick = React.useCallback(() => {
-        core.transport.dispatch({
-            action: 'Ctx',
-            args: {
-                action: 'Logout'
-            }
-        });
-    }, []);
+        logout();
+    }, [logout]);
     const onPlayMagnetLinkClick = React.useCallback(async () => {
         try {
             const clipboardText = await navigator.clipboard.readText();
