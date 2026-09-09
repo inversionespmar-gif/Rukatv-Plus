@@ -24,19 +24,34 @@ segmento de video, con respuestas HTTP 200 y CORS habilitado.
 ## Corrección
 
 La integración entrega al reproductor la URL HTTP real del servidor seleccionado.
-Consulta el tipo de respuesta y lo comunica mediante el campo estándar
-`behaviorHints.proxyHeaders.response['content-type']`. Si el servidor no admite
-HEAD o no informa el MIME, comprueba una pequeña parte del contenido y cancela
-la descarga de diagnóstico.
+Consulta el tipo de respuesta para identificar una opción de video. Si el
+servidor no admite HEAD o no informa el MIME, comprueba una pequeña parte del
+contenido y cancela la descarga de diagnóstico.
+
+La respuesta HEAD de las rutas de video de los servidores instalados se entrega
+al reproductor con un MIME normalizado. No se utiliza `proxyHeaders`: ese campo
+hace que el núcleo dirija el video al servidor local de Stremio. Los cuerpos de
+las listas y segmentos pasan por la red original sin transformaciones.
 
 El addon conserva el contenedor y el identificador del episodio. Los enlaces
 directos MP4/M3U8 del catálogo se consideran alternativas cuando falla el
 resolver del servidor; las páginas embed no se ofrecen como videos.
 
-Solo se interceptan las solicitudes de metadatos al host `xtream.internal`.
+Los metadatos del addon se sirven en el host virtual `xtream.internal`.
 Las solicitudes de video, sus firmas y sus rangos pasan por la red original.
 Las listas HLS no se reconstruyen: se conservan las variantes y las pistas de
 audio/subtítulos del servidor. No se modifica el código del reproductor.
+
+Cada addon responde únicamente a sus propios identificadores, incluso si su
+manifiesto instalado todavía anuncia el prefijo antiguo `xc_`. Esto evita que
+dos servidores instalados dupliquen las opciones de una misma película.
+Para TV se comprueban hasta tres fuentes con el mismo nombre de canal y se
+entrega una sola disponible; no se sustituye por otro canal de nombre diferente.
+
+Los archivos de cada despliegue usan el identificador del commit de Vercel.
+La actualización del service worker espera al flujo existente de confirmación
+y recarga de la aplicación, evitando mezclar una página y un worker de versiones
+distintas. Las pestañas abiertas con una versión anterior deben actualizarse.
 
 ## Verificación
 

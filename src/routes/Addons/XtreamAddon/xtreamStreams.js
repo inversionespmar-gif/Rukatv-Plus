@@ -91,11 +91,9 @@ async function resolveStreams(source, kind, streamId, extension, title, directSo
         streams.push({
             name: type === HLS_TYPE ? 'RukaTv HLS' : 'RukaTv MP4',
             title,
-            url,
-            behaviorHints: {
-                // Supported by Stremio's getContentType; no player or HLS loader changes.
-                proxyHeaders: { response: { 'content-type': type } }
-            }
+            // proxyHeaders would make the core route this through a local
+            // Stremio server, even though Render already serves browser media.
+            url
         });
         // Prefer the authenticated server resolver; external media is a fallback.
         break;

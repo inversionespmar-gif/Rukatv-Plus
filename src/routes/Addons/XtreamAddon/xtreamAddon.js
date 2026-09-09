@@ -191,7 +191,7 @@ function generateManifest(source) {
     const { id, name, server, username, password } = source;
     return {
         id: id,
-        version: '1.0.0',
+        version: '1.0.1',
         name: name || `IPTV XC: ${username}`,
         description: `Servidor Xtream Codes: ${server}`,
         logo: null,
@@ -230,7 +230,7 @@ function generateManifest(source) {
             },
         ],
         resources: ['catalog', 'meta', 'stream'],
-        idPrefixes: ['xc_'],
+        idPrefixes: [`xc_${id}_`],
         behaviorHints: {
             configurable: false,
             configurationRequired: false,

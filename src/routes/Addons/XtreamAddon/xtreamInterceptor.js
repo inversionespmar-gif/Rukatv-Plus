@@ -2,7 +2,7 @@
 // Intercepts browser fetch requests to https://xtream.internal/* and serves Stremio addon responses
 
 const { loadSourcesAsync } = require('./xtreamStorage');
-const { resolveStreams } = require('./xtreamStreams');
+const { resolveStreams, mediaType } = require('./xtreamStreams');
 
 // In-memory cache for catalog & category data to keep browsing ultra-fast
 const cache = new Map();
@@ -22,7 +22,7 @@ function setCache(key, data) {
 
 /**
  * Only intercept the virtual addon API, in both the main window and core worker.
- * Media and proxy requests must use the browser's original networking unchanged.
+ * Media and proxy bodies use the browser's original networking unchanged.
  */
 function setupXtreamInterceptor(scope = globalThis) {
     if (!scope.fetch || scope.fetch.xtreamInterceptor) return;
@@ -35,7 +35,28 @@ function setupXtreamInterceptor(scope = globalThis) {
         } catch (_e) {
             return originalFetch.call(this, resource, options);
         }
-        if (url.hostname !== 'xtream.internal') return originalFetch.call(this, resource, options);
+        if (url.hostname !== 'xtream.internal') {
+            const response = await originalFetch.call(this, resource, options);
+            const method = (options?.method || resource?.method || 'GET').toUpperCase();
+            const type = method === 'HEAD' && response.ok && mediaType(response.headers.get('content-type'));
+            if (!type || type === response.headers.get('content-type')) return response;
+            // The original player requires a canonical HLS MIME. Normalize only
+            // HEAD responses for media belonging to an installed Xtream source.
+            // Do not use proxyHeaders: the core interprets it as a proxy request.
+            try {
+                const sources = await loadSourcesAsync();
+                const isXtreamMedia = sources.some((source) => ['live', 'movie', 'series'].some((kind) => {
+                    const base = new URL(`${source.server.replace(/\/+$/, '')}/${kind}/${encodeURIComponent(source.username)}/${encodeURIComponent(source.password)}/`);
+                    return url.origin === base.origin && url.pathname.startsWith(base.pathname);
+                }));
+                if (!isXtreamMedia) return response;
+                const headers = new Headers(response.headers);
+                headers.set('content-type', type);
+                return new Response(null, { status: response.status, statusText: response.statusText, headers });
+            } catch (_e) {
+                return response;
+            }
+        }
         try {
             return await handleXtreamRequest(url.href);
         } catch (_err) {
@@ -97,8 +118,12 @@ async function handleXtreamRequest(urlStr) {
     if (resource === 'catalog') {
         return await handleCatalog(source, type, rawId, genre, skip, search);
     } else if (resource === 'meta') {
+        if (!rawId.startsWith(`xc_${source.id}_`)) return createJsonResponse({ meta: null });
         return await handleMeta(source, type, rawId);
     } else if (resource === 'stream') {
+        // Older installed manifests advertise the broad xc_ prefix. Do not answer
+        // requests belonging to another source, even before its manifest updates.
+        if (!rawId.startsWith(`xc_${source.id}_`)) return createJsonResponse({ streams: [] });
         return await handleStream(source, type, rawId);
     }
 
@@ -112,7 +137,7 @@ function handleManifest(source, sourceId) {
     const s = source || { id: sourceId, name: 'IPTV Xtream' };
     const manifest = {
         id: s.id,
-        version: '1.0.0',
+        version: '1.0.1',
         name: s.name || 'IPTV Xtream',
         description: `Servidor Xtream Codes IPTV: ${s.server || ''}`,
         logo: 'https://images.rukautv.com/iptv_icon.png',
@@ -150,7 +175,7 @@ function handleManifest(source, sourceId) {
                 ]
             }
         ],
-        idPrefixes: ['xc_']
+        idPrefixes: [`xc_${s.id}_`]
     };
     return createJsonResponse(manifest);
 }
@@ -346,8 +371,17 @@ async function handleStream(source, type, id) {
         const streamId = id.split('_live_')[1];
         const items = await fetchLiveStreamsCached(server, username, password);
         const item = items.find((entry) => String(entry.stream_id) === streamId) || {};
-        const extension = item.container_extension === 'mp4' ? 'mp4' : 'm3u8';
-        streams = await resolveStreams(source, 'live', streamId, extension, item.name || 'Canal en vivo', [item.direct_source, item.stream_url]);
+        // A provider may list a dead and a working feed under the same channel
+        // name. Return one available feed without waiting for the dead one.
+        const channelName = (item.name || '').trim().toLowerCase();
+        const candidates = [item, ...items.filter((entry) => channelName &&
+            String(entry.stream_id) !== streamId && (entry.name || '').trim().toLowerCase() === channelName)].slice(0, 3);
+        streams = await Promise.any(candidates.map(async (entry) => {
+            const extension = entry.container_extension === 'mp4' ? 'mp4' : 'm3u8';
+            const result = await resolveStreams(source, 'live', entry.stream_id || streamId, extension, item.name || 'Canal en vivo', [entry.direct_source, entry.stream_url]);
+            if (result.length === 0) throw new Error('Channel unavailable');
+            return result;
+        })).catch(() => []);
     } else if (type === 'movie' && id.includes('_vod_')) {
         const streamId = id.split('_vod_')[1];
         const items = await fetchVodStreamsCached(server, username, password);

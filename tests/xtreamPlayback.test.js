@@ -8,14 +8,13 @@ afterEach(() => {
     jest.resetModules();
 });
 
-test('detects HLS returned by a .mp4 endpoint and passes a canonical MIME to the original player', async () => {
+test('detects HLS returned by a .mp4 endpoint without requesting a local streaming server', async () => {
     global.fetch = jest.fn(async () => new Response(null, {
         headers: { 'content-type': 'application/vnd.apple.mpegurl; charset=utf-8' }
     }));
     const streams = await resolveStreams(source, 'movie', '17', 'mp4', 'Movie');
     expect(streams).toEqual([{
-        name: 'RukaTv HLS', title: 'Movie', url: 'https://xc.example/movie/user/pass/17.mp4',
-        behaviorHints: { proxyHeaders: { response: { 'content-type': 'application/vnd.apple.mpegurl' } } }
+        name: 'RukaTv HLS', title: 'Movie', url: 'https://xc.example/movie/user/pass/17.mp4'
     }]);
     expect(global.fetch).toHaveBeenCalledTimes(1);
     expect(global.fetch.mock.calls[0][1].method).toBe('HEAD');
@@ -25,7 +24,8 @@ test('keeps genuine MP4 media in the native MP4 path', async () => {
     global.fetch = jest.fn(async () => new Response(null, { headers: { 'content-type': 'video/mp4' } }));
     const [stream] = await resolveStreams(source, 'series', '31', 'mp4', 'Episode');
     expect(stream.url).toBe('https://xc.example/series/user/pass/31.mp4');
-    expect(stream.behaviorHints.proxyHeaders.response['content-type']).toBe('video/mp4');
+    expect(stream.name).toBe('RukaTv MP4');
+    expect(stream.behaviorHints?.proxyHeaders).toBeUndefined();
 });
 
 test('supports providers that reject HEAD and detects an octet-stream HLS prefix', async () => {
@@ -115,6 +115,22 @@ test('supports the worker scope without a window object', async () => {
     expect(response.status).toBe(200);
 });
 
+test('the unchanged original player detects HLS without proxyHeaders or a local server', async () => {
+    const nativeFetch = jest.fn(async () => new Response(null, {
+        headers: { 'content-type': 'application/vnd.apple.mpegurl; charset=utf-8' }
+    }));
+    global.fetch = nativeFetch;
+    interceptor().setupXtreamInterceptor(global);
+    const getContentType = require('@stremio/stremio-video/src/HTMLVideo/getContentType');
+    expect(await getContentType({ url: 'https://xc.example/series/user/pass/101.m3u8' }))
+        .toBe('application/vnd.apple.mpegurl');
+    expect(nativeFetch).toHaveBeenCalledTimes(1);
+    const unrelated = await global.fetch('https://other.example/series/user/pass/101.m3u8', { method: 'HEAD' });
+    expect(unrelated.headers.get('content-type')).toBe('application/vnd.apple.mpegurl; charset=utf-8');
+    const media = await global.fetch('https://xc.example/series/user/pass/101.m3u8');
+    expect(media.headers.get('content-type')).toBe('application/vnd.apple.mpegurl; charset=utf-8');
+});
+
 test.each(['mp4', 'm3u8'])('uses the encoded episode ID and its %s container', async (extension) => {
     global.fetch = jest.fn(async () => new Response(null, { headers: { 'content-type': extension === 'mp4' ? 'video/mp4' : 'application/vnd.apple.mpegurl' } }));
     const id = encodeURIComponent('xc_test_source_series_8:1:2:99:' + extension);
@@ -137,4 +153,33 @@ test('keeps live channels that declare an MP4 container', async () => {
         : new Response(null, { headers: { 'content-type': 'video/mp4' } }));
     const response = await interceptor().handleXtreamRequest('https://xtream.internal/test_source/stream/tv/xc_test_source_live_12.json');
     expect((await response.json()).streams[0].url).toBe('https://xc.example/live/user/pass/12.mp4');
+});
+
+test('does not return duplicate streams from a different installed source', async () => {
+    global.fetch = jest.fn();
+    const response = await interceptor().handleXtreamRequest('https://xtream.internal/test_source/stream/movie/xc_other_source_vod_17.json');
+    expect((await response.json()).streams).toEqual([]);
+    expect(global.fetch).not.toHaveBeenCalled();
+});
+
+test('advertises a source-specific ID prefix in both manifests', async () => {
+    const response = await interceptor().handleXtreamRequest('https://xtream.internal/test_source/manifest.json');
+    const { generateManifest } = require('../src/routes/Addons/XtreamAddon/xtreamAddon');
+    expect((await response.json()).idPrefixes).toEqual(['xc_test_source_']);
+    expect(generateManifest(source).idPrefixes).toEqual(['xc_test_source_']);
+});
+
+test('selects a working feed of the same channel when the requested feed fails', async () => {
+    global.fetch = jest.fn((url) => {
+        if (url.includes('player_api.php')) return Promise.resolve(new Response(JSON.stringify([
+            { stream_id: 25, name: 'ESPN' }, { stream_id: 184, name: 'ESPN' }, { stream_id: 185, name: 'ESPN 2' }
+        ])));
+        if (url.endsWith('/25.m3u8')) return Promise.resolve(new Response(null, { status: 504 }));
+        return Promise.resolve(new Response(null, { headers: { 'content-type': 'application/vnd.apple.mpegurl' } }));
+    });
+    const response = await interceptor().handleXtreamRequest('https://xtream.internal/test_source/stream/tv/xc_test_source_live_25.json');
+    const { streams } = await response.json();
+    expect(streams).toHaveLength(1);
+    expect(streams[0].url).toBe('https://xc.example/live/user/pass/184.m3u8');
+    expect(global.fetch.mock.calls.some(([url]) => url.endsWith('/185.m3u8'))).toBe(false);
 });

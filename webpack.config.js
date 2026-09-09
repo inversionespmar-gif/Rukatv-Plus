@@ -11,7 +11,8 @@ const CopyWebpackPlugin = require('copy-webpack-plugin');
 const TerserPlugin = require('terser-webpack-plugin');
 const packageJson = require('./package.json');
 
-const COMMIT_HASH = 'local-dev';
+// Keep the page and its worker on the same release after a deployment.
+const COMMIT_HASH = process.env.VERCEL_GIT_COMMIT_SHA || process.env.GITHUB_SHA || 'local-dev';
 
 const THREAD_LOADER = {
     loader: 'thread-loader',
@@ -228,7 +229,7 @@ module.exports = (env, argv) => ({
             new WorkboxPlugin.GenerateSW({
                 maximumFileSizeToCacheInBytes: 20000000,
                 clientsClaim: true,
-                skipWaiting: true
+                skipWaiting: false
             }),
         new CopyWebpackPlugin({
             patterns: [
