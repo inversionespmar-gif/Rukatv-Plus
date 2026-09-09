@@ -88,12 +88,15 @@ async function resolveStreams(source, kind, streamId, extension, title, directSo
     for (const url of candidates) {
         const type = await probeMedia(url);
         if (!type) continue;
+        const playableUrl = kind === 'live' && typeof window !== 'undefined'
+            ? `${window.location.origin}/api/xtream-proxy?url=${encodeURIComponent(url)}`
+            : url;
         streams.push({
             name: type === HLS_TYPE ? 'RukaTv HLS' : 'RukaTv MP4',
             title,
             // proxyHeaders would make the core route this through a local
             // Stremio server, even though Render already serves browser media.
-            url
+            url: playableUrl
         });
         // Prefer the authenticated server resolver; external media is a fallback.
         break;
