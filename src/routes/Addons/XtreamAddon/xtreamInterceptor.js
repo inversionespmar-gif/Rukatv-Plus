@@ -2,6 +2,7 @@
 // Intercepts browser fetch requests to https://xtream.internal/* and serves Stremio addon responses
 
 const { loadSourcesAsync } = require('./xtreamStorage');
+const { resolveStreams } = require('./xtreamStreams');
 
 // In-memory cache for catalog & category data to keep browsing ultra-fast
 const cache = new Map();
@@ -20,93 +21,29 @@ function setCache(key, data) {
 }
 
 /**
- * Main fetch interceptor
+ * Only intercept the virtual addon API, in both the main window and core worker.
+ * Media and proxy requests must use the browser's original networking unchanged.
  */
-function setupXtreamInterceptor() {
-    if (typeof window === 'undefined' || !window.fetch) return;
-
-    const originalFetch = window.fetch;
-    window.fetch = async function (resource, options) {
-        const urlStr = typeof resource === 'string' ? resource : (resource && resource.url ? resource.url : '');
-
-        if (urlStr.includes('xtream.internal')) {
-            try {
-                const response = await handleXtreamRequest(urlStr);
-                return response;
-            } catch (err) {
-                console.error('Error handling Xtream request:', err);
-                return new Response(JSON.stringify({ err: err.message }), {
-                    status: 500,
-                    headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
-                });
-            }
+function setupXtreamInterceptor(scope = globalThis) {
+    if (!scope.fetch || scope.fetch.xtreamInterceptor) return;
+    const originalFetch = scope.fetch;
+    const interceptedFetch = async function (resource, options) {
+        let url;
+        try {
+            const input = typeof resource === 'string' || resource instanceof URL ? resource : resource.url;
+            url = new URL(input, scope.location && scope.location.href);
+        } catch (_e) {
+            return originalFetch.call(this, resource, options);
         }
-
-        if (urlStr.includes('/proxy/')) {
-            try {
-                const response = await handleProxyRequest(urlStr);
-                return response;
-            } catch (err) {
-                console.error('Error handling Xtream proxy request:', err);
-            }
+        if (url.hostname !== 'xtream.internal') return originalFetch.call(this, resource, options);
+        try {
+            return await handleXtreamRequest(url.href);
+        } catch (_err) {
+            return createJsonResponse({ err: 'No se pudo obtener el contenido del servidor Xtream.' }, 502);
         }
-
-        return originalFetch.call(this, resource, options);
     };
-}
-
-/**
- * Handle proxy requests for Xtream stream segments (/proxy/https...)
- * Also rewrites m3u8 sub-playlist segment lines to absolute URLs so Hls.js can resolve them
- */
-async function handleProxyRequest(urlStr) {
-    const proxyIdx = urlStr.indexOf('/proxy/');
-    if (proxyIdx === -1) return new Response('Not found', { status: 404 });
-
-    let proxyPath = urlStr.substring(proxyIdx);
-    // Clean trailing ?t=xxxx that corrupts vimeos proxy signature
-    proxyPath = proxyPath.replace(/([?&])t=[a-z0-9]+$/i, '');
-
-    const sources = await loadSourcesAsync();
-    const activeServer = (sources.length > 0 && sources[0].server)
-        ? sources[0].server
-        : 'https://rukaserver2-hnxt.onrender.com';
-
-    const serverOrigin = activeServer.replace(/\/$/, '');
-    const targetUrl = serverOrigin + proxyPath;
-
-    const res = await fetch(targetUrl);
-    const contentType = res.headers.get('content-type') || '';
-
-    // If response is an m3u8 playlist or octet-stream manifest, rewrite relative /proxy/ lines to absolute URLs
-    if (contentType.includes('mpegurl') || contentType.includes('octet-stream') || proxyPath.includes('.m3u8')) {
-        const text = await res.text();
-        const rewritten = text
-            .replace(/URI=["']\/proxy\//gi, `URI="${serverOrigin}/proxy/`)
-            .replace(/^(\/proxy\/)/gmi, `${serverOrigin}/proxy/`)
-            .replace(/(\/proxy\/http[s]?%3A[^\s"'\n]+)\?t=[a-z0-9]+/gi, '$1');
-        return new Response(rewritten, {
-            status: res.status,
-            headers: {
-                'Content-Type': 'application/vnd.apple.mpegurl; charset=utf-8',
-                'Access-Control-Allow-Origin': '*',
-                'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-                'Access-Control-Allow-Headers': '*'
-            }
-        });
-    }
-
-    // Binary response (video segments, audio)
-    const body = await res.arrayBuffer();
-    return new Response(body, {
-        status: res.status,
-        headers: {
-            'Content-Type': contentType || 'video/MP2T',
-            'Access-Control-Allow-Origin': '*',
-            'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-            'Access-Control-Allow-Headers': '*'
-        }
-    });
+    interceptedFetch.xtreamInterceptor = true;
+    scope.fetch = interceptedFetch;
 }
 
 /**
@@ -131,19 +68,6 @@ async function handleXtreamRequest(urlStr) {
         return handleManifest(source, sourceId);
     }
 
-    if (resource === 'playlist') {
-        const pType = pathParts[2];
-        let rawStreamId = pathParts[3] || '';
-        if (rawStreamId.includes(':')) {
-            const parts = rawStreamId.split(':');
-            if (parts.length >= 4) {
-                rawStreamId = parts[3];
-            }
-        }
-        const pStreamId = rawStreamId.replace(/\.m3u8$/, '');
-        return handlePlaylist(source, pType, pStreamId);
-    }
-
     const type = pathParts[2]; // tv | movie | series
     let rawId = '';
 
@@ -156,11 +80,11 @@ async function handleXtreamRequest(urlStr) {
     if (pathParts.length > 3) {
         for (let i = 3; i < pathParts.length; i++) {
             const part = pathParts[i];
-            const cleanPart = part.replace(/\.json$/, '');
+            const cleanPart = decodeURIComponent(part.replace(/\.json$/, ''));
             if (cleanPart.includes('=')) {
                 const eqIdx = cleanPart.indexOf('=');
                 const key = cleanPart.substring(0, eqIdx);
-                const val = decodeURIComponent(cleanPart.substring(eqIdx + 1) || '');
+                const val = cleanPart.substring(eqIdx + 1) || '';
                 if (key === 'genre') genre = val;
                 if (key === 'search') search = val;
                 if (key === 'skip') skip = parseInt(val, 10);
@@ -417,220 +341,33 @@ async function handleMeta(source, type, id) {
  */
 async function handleStream(source, type, id) {
     const { server, username, password } = source;
-    const streams = [];
-
-    const u = encodeURIComponent(username);
-    const p = encodeURIComponent(password);
-
-    if (id.includes('_live_')) {
+    let streams = [];
+    if (type === 'tv' && id.includes('_live_')) {
         const streamId = id.split('_live_')[1];
-        const liveStreams = await fetchLiveStreamsCached(server, username, password);
-        const item = liveStreams.find((s) => String(s.stream_id) === String(streamId));
-
-        // HLS stream via playlist handler — rewrites m3u8 sub-playlist paths to /proxy/ so segments load correctly
-        streams.push({
-            name: 'RukaTv Canales (HLS)',
-            title: (item && item.name) || 'Canal en Vivo',
-            url: `https://xtream.internal/${source.id}/playlist/live/${streamId}.m3u8`,
-            type: 'hls',
-            behaviorHints: { notSupported: false }
-        });
-
-        // Support custom container extension if specified (e.g. mp4, m3u8)
-        if (item && item.container_extension && item.container_extension !== 'm3u8') {
-            if (item.container_extension === 'mp4') {
-                streams.push({
-                    name: `RukaTv Canales (MP4)`,
-                    title: (item && item.name) || 'Canal en Vivo',
-                    url: `${server}/live/${u}/${p}/${streamId}.${item.container_extension}`,
-                    behaviorHints: { notSupported: false }
-                });
-            } else {
-                streams.push({
-                    name: `RukaTv Canales (${item.container_extension.toUpperCase()})`,
-                    title: (item && item.name) || 'Canal en Vivo',
-                    url: `https://xtream.internal/${source.id}/playlist/live/${streamId}.${item.container_extension}`,
-                    type: 'hls',
-                    behaviorHints: { notSupported: false }
-                });
-            }
-        }
-
-        // Direct stream_url if provided in channel metadata
-        if (item && item.stream_url && typeof item.stream_url === 'string' && item.stream_url.startsWith('http')) {
-            streams.push({
-                name: 'RukaTv Direct',
-                title: item.name || 'Canal Directo',
-                url: item.stream_url,
-                type: item.stream_url.includes('.m3u8') ? 'hls' : undefined,
-                behaviorHints: { notSupported: false }
-            });
-        }
-
-    } else if (id.includes('_vod_')) {
+        const items = await fetchLiveStreamsCached(server, username, password);
+        const item = items.find((entry) => String(entry.stream_id) === streamId) || {};
+        const extension = item.container_extension === 'mp4' ? 'mp4' : 'm3u8';
+        streams = await resolveStreams(source, 'live', streamId, extension, item.name || 'Canal en vivo', [item.direct_source, item.stream_url]);
+    } else if (type === 'movie' && id.includes('_vod_')) {
         const streamId = id.split('_vod_')[1];
-        const vodStreams = await fetchVodStreamsCached(server, username, password);
-        const item = vodStreams.find((s) => String(s.stream_id) === String(streamId));
-        const ext = (item && item.container_extension) || 'mp4';
-
-        // MP4 direct — native HTML5 playback
-        streams.push({
-            name: 'RukaTv Direct MP4',
-            title: (item && item.name) || 'Película (mp4)',
-            url: `${server}/movie/${u}/${p}/${streamId}.${ext}`
-        });
-
-        // HLS via playlist handler — rewrites m3u8 for proper segment loading
-        streams.push({
-            name: 'RukaTv Direct HLS',
-            title: (item && item.name) || 'Película (m3u8)',
-            url: `https://xtream.internal/${source.id}/playlist/movie/${streamId}.m3u8`,
-            type: 'hls'
-        });
-
-        // Add external video URLs if they are direct video files
-        if (item && item.stream_url) {
-            try {
-                let parsedUrls = item.stream_url;
-                if (typeof parsedUrls === 'string' && parsedUrls.startsWith('[')) {
-                    parsedUrls = JSON.parse(parsedUrls);
-                }
-                if (Array.isArray(parsedUrls)) {
-                    parsedUrls.forEach((url, idx) => {
-                        if (typeof url === 'string' && !url.endsWith('.html')) {
-                            streams.push({
-                                name: `Servidor Externo #${idx + 1}`,
-                                title: (item && item.name) || 'Película',
-                                url: url
-                            });
-                        }
-                    });
-                } else if (typeof parsedUrls === 'string' && !parsedUrls.endsWith('.html')) {
-                    streams.push({
-                        name: 'Servidor Externo',
-                        title: (item && item.name) || 'Película',
-                        url: parsedUrls
-                    });
-                }
-            } catch (_e) {
-                // ignore
+        const items = await fetchVodStreamsCached(server, username, password);
+        const item = items.find((entry) => String(entry.stream_id) === streamId) || {};
+        streams = await resolveStreams(source, 'movie', streamId, item.container_extension || 'mp4', item.name || 'Película', [item.direct_source, item.stream_url]);
+    } else if (type === 'series' && id.includes('_series_')) {
+        // A series ID is not an episode ID. Preserve the episode's declared container.
+        const [seriesId, season, episode, episodeId, extension] = id.split('_series_')[1].split(':');
+        if (episodeId && season && episode) {
+            streams = await resolveStreams(source, 'series', episodeId, extension || 'mp4', 'Capítulo ' + episode);
+        } else if (season && episode) {
+            const info = await fetchSeriesInfoCached(server, username, password, seriesId);
+            const entry = Object.values(info.episodes || {}).flat().find((ep) =>
+                String(ep.season) === season && String(ep.episode_num || ep.episode) === episode);
+            if (entry) {
+                streams = await resolveStreams(source, 'series', entry.id || entry.stream_id, entry.container_extension || 'mp4', entry.title || 'Capítulo ' + episode, [entry.direct_source, entry.stream_url]);
             }
-        }
-
-    } else if (id.includes('_series_')) {
-        // URL-decode the id first — Stremio may pass colons as %3A
-        const decodedId = decodeURIComponent(id);
-        let epStreamId = '';
-
-        if (decodedId.includes(':')) {
-            // Format: xc_..._series_SERIESID:SEASON:EPISODE:STREAMID:EXT
-            const parts = decodedId.split(':');
-            if (parts.length >= 4) {
-                epStreamId = parts[3]; // numeric stream ID, e.g. "9"
-            }
-        } else {
-            epStreamId = decodedId.split('_series_')[1] || '';
-        }
-        // Remove any trailing extension like .m3u8
-        epStreamId = epStreamId.replace(/\.m3u8$/, '');
-
-        if (epStreamId) {
-            // HLS via playlist handler — rewrites m3u8 for proper segment loading
-            streams.push({
-                name: 'RukaTv Episodio',
-                title: 'Capítulo (HLS)',
-                url: `https://xtream.internal/${source.id}/playlist/series/${epStreamId}.m3u8`,
-                type: 'hls',
-                behaviorHints: { notSupported: false }
-            });
         }
     }
-
     return createJsonResponse({ streams });
-}
-
-/**
- * Serve rewritten m3u8 playlist requests - rewrites ALL /proxy/ paths to absolute server URLs
- * including both master playlist variant lines and sub-playlist .ts segment lines
- */
-async function handlePlaylist(source, type, streamId) {
-    const { server, username, password } = source;
-    const u = encodeURIComponent(username);
-    const p = encodeURIComponent(password);
-
-    let originalUrl = '';
-    if (type === 'series') {
-        originalUrl = `${server}/series/${u}/${p}/${streamId}.m3u8`;
-    } else if (type === 'movie' || type === 'vod') {
-        originalUrl = `${server}/movie/${u}/${p}/${streamId}.m3u8`;
-    } else {
-        originalUrl = `${server}/live/${u}/${p}/${streamId}.m3u8`;
-    }
-
-    try {
-        const serverOrigin = server.replace(/\/$/, '');
-        const masterRes = await fetch(originalUrl);
-        const masterText = await masterRes.text();
-
-        // Find the best variant sub-playlist URL from the master
-        // Priority: HD (_h/) over SD (_n/)
-        const masterLines = masterText.split(/\r?\n/);
-        let bestVariantPath = null;
-        for (const line of masterLines) {
-            const trimmed = line.trim();
-            if (trimmed.startsWith('/proxy/')) {
-                // Clean trailing ?t= token
-                const cleanPath = trimmed.replace(/([?&])t=[a-z0-9]+$/i, '');
-                if (!bestVariantPath || cleanPath.includes('_h/')) {
-                    bestVariantPath = cleanPath;
-                    if (cleanPath.includes('_h/')) break; // HD found, stop
-                }
-            }
-        }
-
-        if (bestVariantPath) {
-            // Fetch the actual variant sub-playlist
-            const subPlaylistUrl = serverOrigin + bestVariantPath;
-            const subRes = await fetch(subPlaylistUrl);
-            const subText = await subRes.text();
-
-            // Rewrite ALL /proxy/ lines in the sub-playlist to absolute server URLs
-            // This ensures Hls.js can resolve every .ts segment directly
-            const rewrittenSub = subText
-                .replace(/URI=["']\/proxy\//gi, `URI="${serverOrigin}/proxy/`)
-                .replace(/^(\/proxy\/)/gmi, `${serverOrigin}/proxy/`)
-                .replace(/(\/proxy\/http[s]?%3A[^\s"'\n]+)\?t=[a-z0-9]+/gi, '$1');
-
-            return new Response(rewrittenSub, {
-                status: 200,
-                headers: {
-                    'Content-Type': 'application/vnd.apple.mpegurl; charset=utf-8',
-                    'Access-Control-Allow-Origin': '*',
-                    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-                    'Access-Control-Allow-Headers': '*'
-                }
-            });
-        }
-
-        // Fallback: return rewritten master if no variant found
-        const rewrittenMaster = masterText
-            .replace(/URI=["']\/proxy\//gi, `URI="${serverOrigin}/proxy/`)
-            .replace(/^(\/proxy\/)/gmi, `${serverOrigin}/proxy/`)
-            .replace(/(\/proxy\/http[s]?%3A[^\s"'\n]+)\?t=[a-z0-9]+/gi, '$1');
-
-        return new Response(rewrittenMaster, {
-            status: 200,
-            headers: {
-                'Content-Type': 'application/vnd.apple.mpegurl; charset=utf-8',
-                'Access-Control-Allow-Origin': '*',
-                'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-                'Access-Control-Allow-Headers': '*'
-            }
-        });
-    } catch (err) {
-        console.error('Error rewriting playlist:', err);
-        return new Response('#EXTM3U\n', { status: 500 });
-    }
 }
 
 // Helpers for cached fetching
@@ -694,6 +431,5 @@ function createJsonResponse(data, status = 200) {
 
 module.exports = {
     setupXtreamInterceptor,
-    handleXtreamRequest,
-    handleProxyRequest
+    handleXtreamRequest
 };
