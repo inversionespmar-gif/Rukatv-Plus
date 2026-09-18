@@ -21,14 +21,17 @@ const useXtreamSubtitles = (player) => {
             type, videoId, name, addons, signal: controller.signal,
             onTracks: (tracks) => {
                 if (controller.signal.aborted) return;
-                setResult((previous) => ({ videoId, tracks: previous.tracks.concat(tracks) }));
+                setResult((previous) => ({ videoId, tracks: (previous?.tracks || []).concat(tracks) }));
             }
         }).catch(() => {
             // Subtitle lookup must not interrupt playback when metadata is unavailable.
         });
         return () => controller.abort();
     }, [type, videoId, name, addons]);
-    return result?.videoId === videoId ? result.tracks : EMPTY_TRACKS;
+    // `videoId` can be undefined while the player is still loading, and `result`
+    // is null until a lookup actually runs. Comparing `undefined === undefined`
+    // would then dereference `result.tracks` on null and crash the player.
+    return result !== null && result.videoId === videoId ? result.tracks : EMPTY_TRACKS;
 };
 
 module.exports = useXtreamSubtitles;

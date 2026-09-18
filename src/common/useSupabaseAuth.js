@@ -5,11 +5,21 @@ const useSupabaseAuth = () => {
     const [loading, setLoading] = React.useState(false);
     const [error, setError] = React.useState('');
 
+    const requireSupabase = React.useCallback(() => {
+        if (!supabase) {
+            const err = new Error('Supabase is not configured.');
+            setError(err.message);
+            throw err;
+        }
+        return supabase;
+    }, []);
+
     const login = React.useCallback(async (email, password) => {
         setLoading(true);
         setError('');
         try {
-            const { data, error: authError } = await supabase.auth.signInWithPassword({
+            const client = requireSupabase();
+            const { data, error: authError } = await client.auth.signInWithPassword({
                 email,
                 password,
             });
@@ -21,13 +31,14 @@ const useSupabaseAuth = () => {
         } finally {
             setLoading(false);
         }
-    }, []);
+    }, [requireSupabase]);
 
     const signup = React.useCallback(async (email, password) => {
         setLoading(true);
         setError('');
         try {
-            const { data, error: authError } = await supabase.auth.signUp({
+            const client = requireSupabase();
+            const { data, error: authError } = await client.auth.signUp({
                 email,
                 password,
             });
@@ -39,13 +50,14 @@ const useSupabaseAuth = () => {
         } finally {
             setLoading(false);
         }
-    }, []);
+    }, [requireSupabase]);
 
     const logout = React.useCallback(async () => {
         setLoading(true);
         setError('');
         try {
-            const { error: authError } = await supabase.auth.signOut();
+            const client = requireSupabase();
+            const { error: authError } = await client.auth.signOut();
             if (authError) throw authError;
         } catch (err) {
             setError(err.message);
@@ -53,13 +65,14 @@ const useSupabaseAuth = () => {
         } finally {
             setLoading(false);
         }
-    }, []);
+    }, [requireSupabase]);
 
     const resetPassword = React.useCallback(async (email) => {
         setLoading(true);
         setError('');
         try {
-            const { error: authError } = await supabase.auth.resetPasswordForEmail(email, {
+            const client = requireSupabase();
+            const { error: authError } = await client.auth.resetPasswordForEmail(email, {
                 redirectTo: window.location.origin,
             });
             if (authError) throw authError;
@@ -69,7 +82,7 @@ const useSupabaseAuth = () => {
         } finally {
             setLoading(false);
         }
-    }, []);
+    }, [requireSupabase]);
 
     return { login, signup, logout, resetPassword, loading, error };
 };

@@ -11,6 +11,10 @@ const SupabaseAuthProvider = ({ children }) => {
     const [session, setSession] = React.useState(null);
 
     React.useEffect(() => {
+        if (!supabase) {
+            return;
+        }
+
         const initSession = async () => {
             const { data: { session: currentSession } } = await supabase.auth.getSession();
             if (currentSession) {
