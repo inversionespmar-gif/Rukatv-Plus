@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { CONSTANTS, languages, onFileDrop, onShortcut, useToast } from 'rukautv/common';
+import useXtreamSubtitles from './useXtreamSubtitles';
 
 const withFallbackLabels = (tracks?: SubtitleTrack[] | null): SubtitleTrack[] => {
     if (!Array.isArray(tracks)) {
@@ -184,9 +185,10 @@ const useSubtitles = ({
         return withFallbackLabels(player.selected?.stream.subtitles);
     }, [player.selected]);
 
+    const xtreamSubtitles = useXtreamSubtitles(player);
     const externalSubtitles = useMemo(() => {
-        return withFallbackLabels(player.subtitles);
-    }, [player.subtitles]);
+        return withFallbackLabels(player.subtitles.concat(xtreamSubtitles));
+    }, [player.subtitles, xtreamSubtitles]);
 
     const allTracks = useMemo(() => {
         return video.state.subtitlesTracks.concat(video.state.extraSubtitlesTracks);

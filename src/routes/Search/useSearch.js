@@ -3,6 +3,7 @@
 const React = require('react');
 const { useCore } = require('rukautv/core');
 const { useModelState } = require('rukautv/common');
+const { getSearchCatalogs, getCoreSearchRange } = require('./searchCatalogs');
 
 const useSearch = (queryParams) => {
     const core = useCore();
@@ -51,32 +52,29 @@ const useSearch = (queryParams) => {
             };
         }
     }, [queryParams]);
+    const search = useModelState({ model: 'search', action });
+    const visible = React.useMemo(() => getSearchCatalogs(search?.catalogs || []), [search?.catalogs]);
     const loadRange = React.useCallback((range) => {
+        const coreRange = getCoreSearchRange(visible.indices, range);
+        if (!coreRange) return;
         core.transport.dispatch({
             action: 'CatalogsWithExtra',
             args: {
                 action: 'LoadRange',
-                args: range
+                args: coreRange
             }
         }, 'search');
-    }, []);
-    const search = useModelState({ model: 'search', action });
+    }, [core, visible]);
     const filteredSearch = React.useMemo(() => {
         if (!search || !Array.isArray(search.catalogs)) {
             return search;
         }
         return {
             ...search,
-            catalogs: search.catalogs.filter((catalog) => {
-                const addonId = (catalog && catalog.addon && catalog.addon.manifest && catalog.addon.manifest.id) || '';
-                const transportUrl = (catalog && catalog.addon && catalog.addon.transportUrl) || (catalog && catalog.request && catalog.request.base) || '';
-                const isCinemeta = addonId.toLowerCase().includes('cinemeta') ||
-                                   transportUrl.toLowerCase().includes('cinemeta') ||
-                                   transportUrl.toLowerCase().includes('stremio.com');
-                return !isCinemeta;
-            })
+            catalogs: visible.catalogs,
+            hasSearchAddons: visible.hasSearchAddons
         };
-    }, [search]);
+    }, [search, visible]);
     return [filteredSearch, loadRange];
 };
 

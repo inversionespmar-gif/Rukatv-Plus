@@ -78,7 +78,10 @@ const Video = ({ className, id, title, thumbnail, season, episode, released, upc
         selectVideo();
 
         if (deepLinks && typeof deepLinks.metaDetailsStreams === 'string') {
-            navigate(toPath(deepLinks.metaDetailsStreams), { replace: !platform.isMobile });
+            navigate(toPath(deepLinks.metaDetailsStreams), {
+                replace: !platform.isMobile,
+                state: { autoPlayEpisode: true }
+            });
         }
     }, [deepLinks, navigate, platform.isMobile, selectVideo]);
     const playButtonOnClick = React.useCallback((event) => {

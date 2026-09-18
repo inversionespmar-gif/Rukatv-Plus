@@ -41,8 +41,9 @@ const Search = () => {
         }
 
         loadSearchRows(range);
-    }, [search.catalogs]);
+    }, [search.catalogs, loadSearchRows]);
     const onScroll = React.useCallback(debounce(onVisibleRangeChange, 250), [onVisibleRangeChange]);
+    React.useEffect(() => () => onScroll.cancel(), [onScroll]);
     React.useLayoutEffect(() => {
         onVisibleRangeChange();
     }, [search.catalogs, onVisibleRangeChange]);
@@ -82,7 +83,7 @@ const Search = () => {
                                     src={require('/assets/images/empty.png')}
                                     alt={' '}
                                 />
-                                <div className={styles['message-label']}>{ t.string('STREMIO_TV_SEARCH_NO_ADDONS') }</div>
+                                <div className={styles['message-label']}>{ t.string(search.hasSearchAddons ? 'SEARCH_NO_RESULTS' : 'STREMIO_TV_SEARCH_NO_ADDONS') }</div>
                             </div>
                             :
                             search.catalogs.map((catalog, index) => {

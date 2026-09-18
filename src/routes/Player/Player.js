@@ -197,7 +197,7 @@ const Player = () => {
                 if (deepLinks.player) {
                     navigate(toPath(deepLinks.player), { replace: true });
                 } else if (deepLinks.metaDetailsStreams) {
-                    navigate(toPath(deepLinks.metaDetailsStreams), { replace: true });
+                    navigate(toPath(deepLinks.metaDetailsStreams), { replace: true, state: { autoPlayEpisode: true } });
                 }
             } else {
                 navigate(-1);
@@ -207,7 +207,7 @@ const Player = () => {
             if (deepLinks.player) {
                 navigate(toPath(deepLinks.player), { replace: true });
             } else if (deepLinks.metaDetailsStreams) {
-                navigate(toPath(deepLinks.metaDetailsStreams), { replace: true });
+                navigate(toPath(deepLinks.metaDetailsStreams), { replace: true, state: { autoPlayEpisode: true } });
             }
         }
     }, []);

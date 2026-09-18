@@ -8,11 +8,14 @@ const { useCore } = require('rukautv/core');
 const { useContentGamepadNavigation } = require('rukautv/services/GamepadNavigation');
 const { withCoreSuspender } = require('rukautv/common');
 const { useNavigateWithOrigin } = require('rukautv-router');
+const { default: toPath } = require('rukautv-router/toPath');
+const { useRouteActive } = require('rukautv/common/useRouteFocused');
 const { HorizontalNavBar, DelayedRenderer, Image, MetaPreview } = require('rukautv/components');
 const StreamsList = require('./StreamsList');
 const VideosList = require('./VideosList');
 const useMetaDetails = require('./useMetaDetails');
 const useSeason = require('./useSeason');
+const getAutoPlayStream = require('./getAutoPlayStream');
 const styles = require('./styles');
 
 const GAMEPAD_HANDLER_ID = 'metadetails';
@@ -31,6 +34,19 @@ const MetaDetails = () => {
         videoId
     }), [type, id, videoId]);
     const metaDetails = useMetaDetails(urlParams);
+    const routeActive = useRouteActive();
+    const autoPlayedLocation = React.useRef(null);
+    React.useEffect(() => {
+        if (!routeActive || !location.state?.autoPlayEpisode || autoPlayedLocation.current === location.key) {
+            return;
+        }
+        const stream = getAutoPlayStream(metaDetails, urlParams);
+        if (stream) {
+            autoPlayedLocation.current = location.key;
+            navigate(toPath(stream.deepLinks.player), { replace: true });
+            core.transport.analytics({ event: 'StreamClicked', args: { stream } });
+        }
+    }, [routeActive, location, metaDetails, urlParams, navigate, core]);
     const [season, setSeason] = useSeason(urlParams);
     const [metaPath, streamPath] = React.useMemo(() => {
         return metaDetails.selected !== null ?

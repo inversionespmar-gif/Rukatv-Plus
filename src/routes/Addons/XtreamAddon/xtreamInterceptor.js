@@ -7,6 +7,11 @@ const { resolveStreams, mediaType } = require('./xtreamStreams');
 // In-memory cache for catalog & category data to keep browsing ultra-fast
 const cache = new Map();
 const CACHE_TTL = 30 * 60 * 1000; // 30 minutes — keeps large catalogs (2000+ items) in memory
+const pendingRequests = new Map();
+const API_TIMEOUT = 30000;
+
+const normalizeSearch = (value) => String(value || '').normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '').toLowerCase().trim().replace(/\s+/g, ' ');
 
 function getCached(key) {
     const item = cache.get(key);
@@ -97,23 +102,15 @@ async function handleXtreamRequest(urlStr) {
     let search = parsed.searchParams.get('search') || '';
     let skip = parseInt(parsed.searchParams.get('skip') || '0', 10);
 
-    // Inspect all pathParts from index 3 onwards for extra parameters like search=query.json
-    if (pathParts.length > 3) {
-        for (let i = 3; i < pathParts.length; i++) {
-            const part = pathParts[i];
-            const cleanPart = decodeURIComponent(part.replace(/\.json$/, ''));
-            if (cleanPart.includes('=')) {
-                const eqIdx = cleanPart.indexOf('=');
-                const key = cleanPart.substring(0, eqIdx);
-                const val = cleanPart.substring(eqIdx + 1) || '';
-                if (key === 'genre') genre = val;
-                if (key === 'search') search = val;
-                if (key === 'skip') skip = parseInt(val, 10);
-            } else if (i === 3) {
-                rawId = cleanPart;
-            }
-        }
+    rawId = decodeURIComponent((pathParts[3] || '').replace(/\.json$/, ''));
+    // Split parameters before decoding so encoded '&', '=' and '+' stay in the search term.
+    for (const part of pathParts.slice(4)) {
+        const extra = new URLSearchParams(part.replace(/\.json$/, ''));
+        if (extra.has('genre')) genre = extra.get('genre');
+        if (extra.has('search')) search = extra.get('search');
+        if (extra.has('skip')) skip = parseInt(extra.get('skip'), 10);
     }
+    skip = Number.isFinite(skip) && skip >= 0 ? skip : 0;
 
     if (resource === 'catalog') {
         return await handleCatalog(source, type, rawId, genre, skip, search);
@@ -204,7 +201,7 @@ async function handleCatalog(source, type, catalogId, genre, skip = 0, searchQue
 
     let metas = [];
     let hasMore = false;
-    const q = searchQuery ? searchQuery.toLowerCase().trim() : '';
+    const q = normalizeSearch(searchQuery);
 
     if (type === 'tv') {
         const liveStreams = await fetchLiveStreamsCached(server, username, password);
@@ -213,7 +210,7 @@ async function handleCatalog(source, type, catalogId, genre, skip = 0, searchQue
             filtered = filtered.filter((item) => String(item.category_id) === String(genre) || item.category_name === genre);
         }
         if (q) {
-            filtered = filtered.filter((item) => (item.name || '').toLowerCase().includes(q));
+            filtered = filtered.filter((item) => normalizeSearch(item.name).includes(q));
         }
         hasMore = filtered.length > skip + PAGE_SIZE;
         const pageItems = filtered.slice(skip, skip + PAGE_SIZE);
@@ -232,7 +229,7 @@ async function handleCatalog(source, type, catalogId, genre, skip = 0, searchQue
             filtered = filtered.filter((item) => String(item.category_id) === String(genre) || item.category_name === genre);
         }
         if (q) {
-            filtered = filtered.filter((item) => (item.name || '').toLowerCase().includes(q));
+            filtered = filtered.filter((item) => normalizeSearch(item.name).includes(q));
         }
         hasMore = filtered.length > skip + PAGE_SIZE;
         const pageItems = filtered.slice(skip, skip + PAGE_SIZE);
@@ -252,7 +249,7 @@ async function handleCatalog(source, type, catalogId, genre, skip = 0, searchQue
             filtered = filtered.filter((item) => String(item.category_id) === String(genre) || item.category_name === genre);
         }
         if (q) {
-            filtered = filtered.filter((item) => (item.name || '').toLowerCase().includes(q));
+            filtered = filtered.filter((item) => normalizeSearch(item.name).includes(q));
         }
         hasMore = filtered.length > skip + PAGE_SIZE;
         const pageItems = filtered.slice(skip, skip + PAGE_SIZE);
@@ -405,52 +402,54 @@ async function handleStream(source, type, id) {
 }
 
 // Helpers for cached fetching
-async function fetchLiveStreamsCached(server, username, password) {
-    const cacheKey = `raw_live_${server}_${username}`;
-    let data = getCached(cacheKey);
-    if (!data) {
-        const url = `${server}/player_api.php?username=${encodeURIComponent(username)}&password=${encodeURIComponent(password)}&action=get_live_streams`;
-        const res = await fetch(url);
-        data = await res.json();
-        setCache(cacheKey, Array.isArray(data) ? data : []);
+async function fetchApiCached(server, username, password, action, seriesId) {
+    const params = new URLSearchParams({ username, password, action });
+    if (seriesId !== undefined) params.set(action === 'get_vod_info' ? 'vod_id' : 'series_id', seriesId);
+    const url = `${server.replace(/\/+$/, '')}/player_api.php?${params}`;
+    const cached = getCached(url);
+    if (cached !== null) return cached;
+    if (pendingRequests.has(url)) return pendingRequests.get(url);
+
+    const request = (async () => {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), API_TIMEOUT);
+        try {
+            const response = await fetch(url, { signal: controller.signal });
+            if (!response.ok) throw new Error('Xtream API request failed');
+            const data = await response.json();
+            const valid = action === 'get_series_info' || action === 'get_vod_info'
+                ? data && typeof data === 'object' && !Array.isArray(data) &&
+                    (action === 'get_series_info' ? data.episodes : data.info || data.movie_data)
+                : Array.isArray(data);
+            if (!valid) throw new Error('Invalid Xtream API response');
+            setCache(url, data);
+            return data;
+        } finally {
+            clearTimeout(timer);
+        }
+    })();
+    pendingRequests.set(url, request);
+    try {
+        return await request;
+    } finally {
+        pendingRequests.delete(url);
     }
-    return Array.isArray(data) ? data : [];
 }
 
-async function fetchVodStreamsCached(server, username, password) {
-    const cacheKey = `raw_vod_${server}_${username}`;
-    let data = getCached(cacheKey);
-    if (!data) {
-        const url = `${server}/player_api.php?username=${encodeURIComponent(username)}&password=${encodeURIComponent(password)}&action=get_vod_streams`;
-        const res = await fetch(url);
-        data = await res.json();
-        setCache(cacheKey, Array.isArray(data) ? data : []);
-    }
-    return Array.isArray(data) ? data : [];
+function fetchLiveStreamsCached(server, username, password) {
+    return fetchApiCached(server, username, password, 'get_live_streams');
 }
 
-async function fetchSeriesCached(server, username, password) {
-    const cacheKey = `raw_series_${server}_${username}`;
-    let data = getCached(cacheKey);
-    if (!data) {
-        const url = `${server}/player_api.php?username=${encodeURIComponent(username)}&password=${encodeURIComponent(password)}&action=get_series`;
-        const res = await fetch(url);
-        data = await res.json();
-        setCache(cacheKey, Array.isArray(data) ? data : []);
-    }
-    return Array.isArray(data) ? data : [];
+function fetchVodStreamsCached(server, username, password) {
+    return fetchApiCached(server, username, password, 'get_vod_streams');
 }
 
-async function fetchSeriesInfoCached(server, username, password, seriesId) {
-    const cacheKey = `raw_series_info_${server}_${seriesId}`;
-    let data = getCached(cacheKey);
-    if (!data) {
-        const url = `${server}/player_api.php?username=${encodeURIComponent(username)}&password=${encodeURIComponent(password)}&action=get_series_info&series_id=${seriesId}`;
-        const res = await fetch(url);
-        data = await res.json();
-        setCache(cacheKey, data || {});
-    }
-    return data || {};
+function fetchSeriesCached(server, username, password) {
+    return fetchApiCached(server, username, password, 'get_series');
+}
+
+function fetchSeriesInfoCached(server, username, password, seriesId) {
+    return fetchApiCached(server, username, password, 'get_series_info', seriesId);
 }
 
 function createJsonResponse(data, status = 200) {
@@ -465,5 +464,6 @@ function createJsonResponse(data, status = 200) {
 
 module.exports = {
     setupXtreamInterceptor,
-    handleXtreamRequest
+    handleXtreamRequest,
+    fetchApiCached
 };
