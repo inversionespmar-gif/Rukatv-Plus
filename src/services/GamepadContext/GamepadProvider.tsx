@@ -64,7 +64,7 @@ const GamepadProvider = ({ enabled, onGuide, children }: GamepadProviderProps) =
         lockPrefix.current = null;
     }, []);
 
-    const emit = (event: string, data?: string) => {
+    const emit = useCallback((event: string, data?: string) => {
         if (eventHandlers.current.has(event)) {
             const handlersMap = eventHandlers.current.get(event)!;
 
@@ -84,7 +84,7 @@ const GamepadProvider = ({ enabled, onGuide, children }: GamepadProviderProps) =
                 latestHandler(data);
             }
         }
-    };
+    }, []);
 
     const onGamepadConnected = useCallback((e: GamepadEvent) => {
         setControllerType(detectControllerType(e.gamepad));
@@ -129,6 +129,68 @@ const GamepadProvider = ({ enabled, onGuide, children }: GamepadProviderProps) =
             window.removeEventListener('gamepaddisconnected', onGamepadDisconnected);
         };
     }, [enabled, onGamepadConnected, onGamepadDisconnected]);
+
+    // Keyboard / Android Smart TV Remote Control D-Pad listener
+    useEffect(() => {
+        if (!enabled) return;
+
+        const onKeyDown = (e: KeyboardEvent) => {
+            const activeEl = document.activeElement;
+            const isInput = activeEl && (
+                activeEl.tagName === 'INPUT' ||
+                activeEl.tagName === 'TEXTAREA' ||
+                activeEl.tagName === 'SELECT' ||
+                (activeEl as HTMLElement).isContentEditable
+            );
+
+            if (isInput) return;
+
+            switch (e.key) {
+                case 'ArrowUp':
+                    emit('analog', 'up');
+                    e.preventDefault();
+                    break;
+                case 'ArrowDown':
+                    emit('analog', 'down');
+                    e.preventDefault();
+                    break;
+                case 'ArrowLeft':
+                    emit('analog', 'left');
+                    e.preventDefault();
+                    break;
+                case 'ArrowRight':
+                    emit('analog', 'right');
+                    e.preventDefault();
+                    break;
+                case 'Enter':
+                case 'Select':
+                    emit('buttonA');
+                    e.preventDefault();
+                    break;
+                case 'Escape':
+                case 'Backspace':
+                case 'GoBack':
+                case 'BrowserBack':
+                    emit('buttonB');
+                    e.preventDefault();
+                    break;
+                default:
+                    if (e.keyCode === 13) {
+                        emit('buttonA');
+                        e.preventDefault();
+                    } else if (e.keyCode === 27 || e.keyCode === 4) {
+                        emit('buttonB');
+                        e.preventDefault();
+                    }
+                    break;
+            }
+        };
+
+        window.addEventListener('keydown', onKeyDown);
+        return () => {
+            window.removeEventListener('keydown', onKeyDown);
+        };
+    }, [enabled, emit]);
 
     useEffect(() => {
         if (onGuide) {

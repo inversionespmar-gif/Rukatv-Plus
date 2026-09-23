@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">RukaTv</string>
+    <string name="title_activity_main">RukaTv</string>
+    <string name="package_name">com.rukautv.app</string>
+    <string name="custom_url_scheme">com.rukautv.app</string>
+</resources>
