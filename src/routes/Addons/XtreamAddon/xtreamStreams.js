@@ -84,47 +84,41 @@ async function resolveStreams(source, kind, streamId, extension, title, directSo
         const p = encodeURIComponent(source.password);
         const id = encodeURIComponent(streamId);
 
-        const hlsUrl = `${server}/live/${u}/${p}/${id}.m3u8`;
-        const tsUrl = `${server}/live/${u}/${p}/${id}.ts`;
-        const baseUrl = `${server}/live/${u}/${p}/${id}`;
+        const internalHlsUrl = `https://xtream.internal/${source.id}/media/live/${id}.m3u8`;
+        const internalTsUrl = `https://xtream.internal/${source.id}/media/live/${id}.ts`;
 
-        // 1. Primary HLS stream for web player
+        const directHlsUrl = `${server}/live/${u}/${p}/${id}.m3u8`;
+        const directTsUrl = `${server}/live/${u}/${p}/${id}.ts`;
+
+        // 1. Internal virtual HLS stream (Proxied in-browser to bypass Mixed Content & CORS)
         streams.push({
-            name: 'RukaTv Live HLS (.m3u8)',
+            name: 'RukaTv Live HLS (Recomendado)',
             title: title || 'Canal en Vivo',
-            url: hlsUrl
+            url: internalHlsUrl
         });
 
-        // 2. MPEG-TS stream
+        // 2. Internal virtual TS stream
         streams.push({
-            name: 'RukaTv Live TS (.ts)',
+            name: 'RukaTv Live TS (Direct Proxy)',
             title: title || 'Canal en Vivo',
-            url: tsUrl
+            url: internalTsUrl
         });
 
-        // 3. Base stream
+        // 3. Direct provider HLS stream
         streams.push({
-            name: 'RukaTv Live Direct',
+            name: 'RukaTv Live Direct (.m3u8)',
             title: title || 'Canal en Vivo',
-            url: baseUrl
+            url: directHlsUrl
         });
 
-        // 4. HTTPS fallbacks if running on HTTPS and provider server is HTTP
-        if (typeof window !== 'undefined' && window.location.protocol === 'https:' && server.startsWith('http://')) {
-            const serverHttps = server.replace(/^http:/, 'https:');
-            streams.push({
-                name: 'RukaTv Live HTTPS HLS',
-                title: title || 'Canal en Vivo',
-                url: `${serverHttps}/live/${u}/${p}/${id}.m3u8`
-            });
-            streams.push({
-                name: 'RukaTv Live HTTPS TS',
-                title: title || 'Canal en Vivo',
-                url: `${serverHttps}/live/${u}/${p}/${id}.ts`
-            });
-        }
+        // 4. Direct provider TS stream
+        streams.push({
+            name: 'RukaTv Live Direct (.ts)',
+            title: title || 'Canal en Vivo',
+            url: directTsUrl
+        });
 
-        // 5. Direct provider mirrors if supplied
+        // 5. Direct provider mirrors
         const extraUrls = directSources.flatMap((value) => directUrls(value, server));
         for (const extraUrl of extraUrls) {
             streams.push({
@@ -141,7 +135,10 @@ async function resolveStreams(source, kind, streamId, extension, title, directSo
     const ext = /^[a-z0-9]+$/i.test(extension || '') ? extension.toLowerCase() : 'mp4';
     const path = [kind, source.username, source.password, streamId].map(encodeURIComponent).join('/');
     const mainUrl = `${server}/${path}.${ext}`;
+    const internalUrl = `https://xtream.internal/${source.id}/media/${kind}/${streamId}.${ext}`;
+
     const candidates = [...new Set([
+        internalUrl,
         mainUrl,
         ...directSources.flatMap((value) => directUrls(value, server))
     ])];
@@ -163,7 +160,7 @@ async function resolveStreams(source, kind, streamId, extension, title, directSo
         streams.push({
             name: 'RukaTv Stream',
             title,
-            url: mainUrl
+            url: internalUrl
         });
     }
 

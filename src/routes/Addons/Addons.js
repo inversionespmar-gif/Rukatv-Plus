@@ -91,15 +91,40 @@ const Addons = () => {
             }
         });
     }, []);
-    const onAddonUninstall = React.useCallback((event) => {
+    const onAddonUninstall = React.useCallback(async (event) => {
+        const addon = event.dataset.addon;
         core.transport.dispatch({
             action: 'Ctx',
             args: {
                 action: 'UninstallAddon',
-                args: event.dataset.addon,
+                args: addon,
             }
         });
-    }, []);
+
+        const transportUrl = addon && (addon.transportUrl || addon.manifest?.transportUrl || '');
+        const addonId = addon && (addon.manifest?.id || addon.id || '');
+
+        if (transportUrl.includes('xtream.internal') || addonId.startsWith('xc_')) {
+            let sourceId = addonId;
+            if (transportUrl.includes('xtream.internal/')) {
+                const parts = transportUrl.split('xtream.internal/')[1];
+                if (parts) sourceId = parts.split('/')[0];
+            }
+
+            const { removeSourceAsync } = require('./XtreamAddon/xtreamStorage');
+            const { pushXtreamSourcesToSupabase } = require('rukautv/common/supabaseLibrarySync');
+            const supabase = require('rukautv/common/supabase');
+
+            await removeSourceAsync(sourceId);
+
+            if (supabase) {
+                const { data: { session } } = await supabase.auth.getSession();
+                if (session && session.user) {
+                    await pushXtreamSourcesToSupabase(session.user.id);
+                }
+            }
+        }
+    }, [core]);
     const onAddonConfigure = React.useCallback((event) => {
         platform.openExternal(event.dataset.addon.transportUrl.replace('manifest.json', 'configure'));
     }, []);

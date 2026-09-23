@@ -289,6 +289,23 @@ function initSupabaseSync(userId, core) {
                     syncItemToSupabase(userId, { id: itemId, state: newState });
                 } else if (subAction === 'UpdateSettings' && subArgs) {
                     pushSettingsToSupabase(userId, subArgs);
+                } else if (subAction === 'UninstallAddon' && subArgs) {
+                    const addon = subArgs;
+                    const transportUrl = addon && (addon.transportUrl || addon.manifest?.transportUrl || (typeof addon === 'string' ? addon : ''));
+                    const addonId = addon && (addon.manifest?.id || addon.id || (typeof addon === 'string' ? addon : ''));
+
+                    if (transportUrl.includes('xtream.internal') || addonId.startsWith('xc_')) {
+                        let sourceId = addonId;
+                        if (transportUrl.includes('xtream.internal/')) {
+                            const parts = transportUrl.split('xtream.internal/')[1];
+                            if (parts) sourceId = parts.split('/')[0];
+                        }
+
+                        const { removeSourceAsync } = require('../routes/Addons/XtreamAddon/xtreamStorage');
+                        removeSourceAsync(sourceId).then(() => {
+                            pushXtreamSourcesToSupabase(userId);
+                        });
+                    }
                 }
             }
 

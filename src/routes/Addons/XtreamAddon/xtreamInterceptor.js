@@ -122,6 +122,8 @@ async function handleXtreamRequest(urlStr) {
         // requests belonging to another source, even before its manifest updates.
         if (!rawId.startsWith(`xc_${source.id}_`)) return createJsonResponse({ streams: [] });
         return await handleStream(source, type, rawId);
+    } else if (resource === 'media') {
+        return await handleMediaStream(source, type, rawId, parsed.searchParams);
     }
 
     return createJsonResponse({ err: 'Unknown resource' }, 404);
@@ -418,6 +420,61 @@ async function handleStream(source, type, id) {
         }
     }
     return createJsonResponse({ streams });
+}
+
+/**
+ * Proxy media streams (Live TV, VOD, Series) to eliminate Mixed Content & CORS blocks in browser
+ */
+async function handleMediaStream(source, kind, rawId) {
+    if (!source || !source.server || !source.username || !source.password) {
+        return new Response('Source invalid', { status: 404 });
+    }
+
+    const { server, username, password } = source;
+    const cleanServer = server.replace(/\/+$/, '');
+    const cleanId = rawId.replace(/\.(m3u8|ts|mp4)$/i, '');
+    const ext = rawId.endsWith('.ts') ? 'ts' : rawId.endsWith('.mp4') ? 'mp4' : 'm3u8';
+
+    let targetUrl = `${cleanServer}/live/${encodeURIComponent(username)}/${encodeURIComponent(password)}/${encodeURIComponent(cleanId)}.${ext}`;
+    if (kind === 'movie') {
+        targetUrl = `${cleanServer}/movie/${encodeURIComponent(username)}/${encodeURIComponent(password)}/${encodeURIComponent(cleanId)}.${ext === 'm3u8' ? 'mp4' : ext}`;
+    } else if (kind === 'series') {
+        targetUrl = `${cleanServer}/series/${encodeURIComponent(username)}/${encodeURIComponent(password)}/${encodeURIComponent(cleanId)}.${ext === 'm3u8' ? 'mp4' : ext}`;
+    }
+
+    try {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 20000);
+        const res = await fetch(targetUrl, { signal: controller.signal });
+        clearTimeout(timer);
+
+        if (!res.ok) {
+            if (ext === 'm3u8') {
+                const altUrl = `${cleanServer}/live/${encodeURIComponent(username)}/${encodeURIComponent(password)}/${encodeURIComponent(cleanId)}.ts`;
+                const altRes = await fetch(altUrl).catch(() => null);
+                if (altRes && altRes.ok) {
+                    const headers = new Headers(altRes.headers);
+                    headers.set('Access-Control-Allow-Origin', '*');
+                    headers.set('Content-Type', 'video/mp2t');
+                    return new Response(altRes.body, { status: 200, headers });
+                }
+            }
+            return new Response(`Media HTTP ${res.status}`, { status: res.status });
+        }
+
+        const headers = new Headers(res.headers);
+        headers.set('Access-Control-Allow-Origin', '*');
+        const mime = ext === 'm3u8' ? 'application/vnd.apple.mpegurl' : (ext === 'ts' ? 'video/mp2t' : 'video/mp4');
+        headers.set('Content-Type', mime);
+
+        return new Response(res.body, {
+            status: res.status,
+            statusText: res.statusText,
+            headers
+        });
+    } catch (err) {
+        return new Response(`Media Fetch Error: ${err.message}`, { status: 502 });
+    }
 }
 
 // Helpers for cached fetching
