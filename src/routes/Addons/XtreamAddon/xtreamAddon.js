@@ -263,6 +263,7 @@ async function connectAndInstall(server, username, password, onProgress) {
 
     if (onProgress) onProgress('Guardando configuración...');
     await saveSourceAsync(source);
+    syncSourcesToSupabaseIfLoggedIn();
 
     const manifest = generateManifest(source);
     const transportUrl = `https://xtream.internal/${sourceId}/manifest.json`;
@@ -273,6 +274,20 @@ async function connectAndInstall(server, username, password, onProgress) {
     };
 
     return { manifest, source, transportUrl, addonDescriptor, connectionResult };
+}
+
+async function syncSourcesToSupabaseIfLoggedIn() {
+    try {
+        const supabase = require('../../../common/supabase');
+        if (!supabase) return;
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session && session.user) {
+            const { pushXtreamSourcesToSupabase } = require('../../../common/supabaseLibrarySync');
+            await pushXtreamSourcesToSupabase(session.user.id);
+        }
+    } catch (_e) {
+        // ignore fallback
+    }
 }
 
 /**

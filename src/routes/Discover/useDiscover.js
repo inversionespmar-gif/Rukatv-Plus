@@ -1,7 +1,7 @@
-// Copyright (C) 2017-2023 Smart code 203358507
-
 const React = require('react');
 const UrlUtils = require('url');
+const { useNavigate } = require('react-router');
+const { default: toPath } = require('rukautv-router/toPath');
 const { useCore } = require('rukautv/core');
 const { useModelState } = require('rukautv/common');
 
@@ -16,7 +16,8 @@ const map = (discover) => {
                 const transportUrl = (addon && addon.transportUrl) || '';
                 const isCinemeta = addonId.toLowerCase().includes('cinemeta') ||
                                    transportUrl.toLowerCase().includes('cinemeta') ||
-                                   transportUrl.toLowerCase().includes('stremio.com');
+                                   transportUrl.toLowerCase().includes('stremio.com') ||
+                                   addonId.toLowerCase().includes('watchhub');
                 return !isCinemeta;
             })
         };
@@ -42,6 +43,7 @@ const map = (discover) => {
 
 const useDiscover = (urlParams, queryParams) => {
     const core = useCore();
+    const navigate = useNavigate();
     const loadNextPage = React.useCallback(() => {
         core.transport.dispatch({
             action: 'CatalogWithFilters',
@@ -87,6 +89,29 @@ const useDiscover = (urlParams, queryParams) => {
         };
     }, [urlParams, queryParams]);
     const discover = useModelState({ model: 'discover', action, map, deps: ['ctx'] });
+
+    React.useEffect(() => {
+        if (discover && discover.selectable && Array.isArray(discover.selectable.catalogs) && discover.selectable.catalogs.length > 0) {
+            const selectedBase = discover.selected?.request?.base || '';
+            const selectedCatalogId = discover.selected?.request?.path?.id || '';
+            const selectedCatalog = discover.selectable.catalogs.find((c) => c.id === selectedCatalogId);
+            const selectedAddonId = selectedCatalog?.addon?.manifest?.id || '';
+
+            const isCinemetaSelected = !selectedBase ||
+                                       selectedBase.toLowerCase().includes('cinemeta') ||
+                                       selectedBase.toLowerCase().includes('stremio.com') ||
+                                       selectedAddonId.toLowerCase().includes('cinemeta') ||
+                                       selectedAddonId.toLowerCase().includes('watchhub');
+
+            if (!urlParams.transportUrl || isCinemetaSelected) {
+                const defaultCatalog = discover.selectable.catalogs[0];
+                if (defaultCatalog && defaultCatalog.deepLinks && defaultCatalog.deepLinks.discover) {
+                    navigate(toPath(defaultCatalog.deepLinks.discover), { replace: true });
+                }
+            }
+        }
+    }, [discover, urlParams.transportUrl, navigate]);
+
     return [discover, loadNextPage];
 };
 

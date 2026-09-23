@@ -91,7 +91,7 @@ async function handleXtreamRequest(urlStr) {
     }
 
     if (resource === 'manifest.json' || !resource) {
-        return handleManifest(source, sourceId);
+        return await handleManifest(source, sourceId);
     }
 
     const type = pathParts[2]; // tv | movie | series
@@ -128,10 +128,36 @@ async function handleXtreamRequest(urlStr) {
 }
 
 /**
- * Serve manifest.json
+ * Serve manifest.json with dynamic categories for genres
  */
-function handleManifest(source, sourceId) {
+async function handleManifest(source, sourceId) {
     const s = source || { id: sourceId, name: 'IPTV Xtream' };
+    let liveGenres = [];
+    let vodGenres = [];
+    let seriesGenres = [];
+
+    if (s.server && s.username && s.password) {
+        try {
+            const [liveCats, vodCats, seriesCats] = await Promise.all([
+                fetchApiCached(s.server, s.username, s.password, 'get_live_categories').catch(() => []),
+                fetchApiCached(s.server, s.username, s.password, 'get_vod_categories').catch(() => []),
+                fetchApiCached(s.server, s.username, s.password, 'get_series_categories').catch(() => [])
+            ]);
+
+            if (Array.isArray(liveCats)) {
+                liveGenres = liveCats.map((c) => c.category_name).filter(Boolean);
+            }
+            if (Array.isArray(vodCats)) {
+                vodGenres = vodCats.map((c) => c.category_name).filter(Boolean);
+            }
+            if (Array.isArray(seriesCats)) {
+                seriesGenres = seriesCats.map((c) => c.category_name).filter(Boolean);
+            }
+        } catch (_e) {
+            // Ignore error if server categories fail
+        }
+    }
+
     const manifest = {
         id: s.id,
         version: '1.0.1',
@@ -147,7 +173,7 @@ function handleManifest(source, sourceId) {
                 name: 'Canales en Vivo',
                 extra: [
                     { name: 'search', isRequired: false },
-                    { name: 'genre', isRequired: false },
+                    { name: 'genre', options: liveGenres.length > 0 ? liveGenres : undefined, isRequired: false },
                     { name: 'skip', isRequired: false }
                 ]
             },
@@ -157,7 +183,7 @@ function handleManifest(source, sourceId) {
                 name: 'Películas VOD',
                 extra: [
                     { name: 'search', isRequired: false },
-                    { name: 'genre', isRequired: false },
+                    { name: 'genre', options: vodGenres.length > 0 ? vodGenres : undefined, isRequired: false },
                     { name: 'skip', isRequired: false }
                 ]
             },
@@ -167,7 +193,7 @@ function handleManifest(source, sourceId) {
                 name: 'Series',
                 extra: [
                     { name: 'search', isRequired: false },
-                    { name: 'genre', isRequired: false },
+                    { name: 'genre', options: seriesGenres.length > 0 ? seriesGenres : undefined, isRequired: false },
                     { name: 'skip', isRequired: false }
                 ]
             }

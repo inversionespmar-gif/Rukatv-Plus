@@ -1,5 +1,7 @@
 const React = require('react');
 const supabase = require('rukautv/common/supabase');
+const { useCore } = require('rukautv/core');
+const { initSupabaseSync } = require('./supabaseLibrarySync');
 
 const SupabaseAuthContext = React.createContext({
     user: null,
@@ -9,6 +11,7 @@ const SupabaseAuthContext = React.createContext({
 const SupabaseAuthProvider = ({ children }) => {
     const [user, setUser] = React.useState(null);
     const [session, setSession] = React.useState(null);
+    const core = useCore();
 
     React.useEffect(() => {
         if (!supabase) {
@@ -31,6 +34,17 @@ const SupabaseAuthProvider = ({ children }) => {
 
         return () => subscription.unsubscribe();
     }, []);
+
+    React.useEffect(() => {
+        if (!user || !user.id || !core) {
+            return;
+        }
+
+        const cleanup = initSupabaseSync(user.id, core);
+        return () => {
+            if (cleanup) cleanup();
+        };
+    }, [user, core]);
 
     return (
         <SupabaseAuthContext.Provider value={{ user, session }}>
