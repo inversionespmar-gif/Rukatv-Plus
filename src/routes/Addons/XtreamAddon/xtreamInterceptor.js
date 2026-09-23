@@ -392,19 +392,12 @@ async function handleStream(source, type, id) {
     let streams = [];
     if (type === 'tv' && id.includes('_live_')) {
         const streamId = id.split('_live_')[1];
-        const items = await fetchLiveStreamsCached(server, username, password);
-        const item = items.find((entry) => String(entry.stream_id) === streamId) || {};
-        // A provider may list a dead and a working feed under the same channel
-        // name. Return one available feed without waiting for the dead one.
-        const channelName = (item.name || '').trim().toLowerCase();
-        const candidates = [item, ...items.filter((entry) => channelName &&
-            String(entry.stream_id) !== streamId && (entry.name || '').trim().toLowerCase() === channelName)].slice(0, 3);
-        streams = await Promise.any(candidates.map(async (entry) => {
-            const extension = entry.container_extension === 'mp4' ? 'mp4' : 'm3u8';
-            const result = await resolveStreams(source, 'live', entry.stream_id || streamId, extension, item.name || 'Canal en vivo', [entry.direct_source, entry.stream_url]);
-            if (result.length === 0) throw new Error('Channel unavailable');
-            return result;
-        })).catch(() => []);
+        const items = await fetchLiveStreamsCached(server, username, password).catch(() => []);
+        const item = Array.isArray(items) ? items.find((entry) => String(entry.stream_id) === String(streamId)) : null;
+        const title = item ? (item.name || 'Canal en vivo') : 'Canal en vivo';
+        const directSources = item ? [item.direct_source, item.stream_url] : [];
+
+        streams = await resolveStreams(source, 'live', streamId, 'm3u8', title, directSources);
     } else if (type === 'movie' && id.includes('_vod_')) {
         const streamId = id.split('_vod_')[1];
         const items = await fetchVodStreamsCached(server, username, password);

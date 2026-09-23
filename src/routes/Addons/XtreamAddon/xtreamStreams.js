@@ -77,30 +77,96 @@ async function probeMedia(url) {
 
 async function resolveStreams(source, kind, streamId, extension, title, directSources = []) {
     const server = source.server.replace(/\/+$/, '');
+    const streams = [];
+
+    if (kind === 'live') {
+        const u = encodeURIComponent(source.username);
+        const p = encodeURIComponent(source.password);
+        const id = encodeURIComponent(streamId);
+
+        const hlsUrl = `${server}/live/${u}/${p}/${id}.m3u8`;
+        const tsUrl = `${server}/live/${u}/${p}/${id}.ts`;
+        const baseUrl = `${server}/live/${u}/${p}/${id}`;
+
+        // 1. Primary HLS stream for web player
+        streams.push({
+            name: 'RukaTv Live HLS (.m3u8)',
+            title: title || 'Canal en Vivo',
+            url: hlsUrl
+        });
+
+        // 2. MPEG-TS stream
+        streams.push({
+            name: 'RukaTv Live TS (.ts)',
+            title: title || 'Canal en Vivo',
+            url: tsUrl
+        });
+
+        // 3. Base stream
+        streams.push({
+            name: 'RukaTv Live Direct',
+            title: title || 'Canal en Vivo',
+            url: baseUrl
+        });
+
+        // 4. HTTPS fallbacks if running on HTTPS and provider server is HTTP
+        if (typeof window !== 'undefined' && window.location.protocol === 'https:' && server.startsWith('http://')) {
+            const serverHttps = server.replace(/^http:/, 'https:');
+            streams.push({
+                name: 'RukaTv Live HTTPS HLS',
+                title: title || 'Canal en Vivo',
+                url: `${serverHttps}/live/${u}/${p}/${id}.m3u8`
+            });
+            streams.push({
+                name: 'RukaTv Live HTTPS TS',
+                title: title || 'Canal en Vivo',
+                url: `${serverHttps}/live/${u}/${p}/${id}.ts`
+            });
+        }
+
+        // 5. Direct provider mirrors if supplied
+        const extraUrls = directSources.flatMap((value) => directUrls(value, server));
+        for (const extraUrl of extraUrls) {
+            streams.push({
+                name: 'RukaTv Live Mirror',
+                title: title || 'Canal en Vivo',
+                url: extraUrl
+            });
+        }
+
+        return streams;
+    }
+
+    // For VOD (movies) and Series
     const ext = /^[a-z0-9]+$/i.test(extension || '') ? extension.toLowerCase() : 'mp4';
     const path = [kind, source.username, source.password, streamId].map(encodeURIComponent).join('/');
-    // Keep the server's resolver/proxy URL so headers, signatures and relative HLS paths survive.
+    const mainUrl = `${server}/${path}.${ext}`;
     const candidates = [...new Set([
-        `${server}/${path}.${ext}`,
+        mainUrl,
         ...directSources.flatMap((value) => directUrls(value, server))
     ])];
-    const streams = [];
+
     for (const url of candidates) {
-        const type = await probeMedia(url);
-        if (!type) continue;
-        const playableUrl = kind === 'live' && typeof window !== 'undefined'
-            ? `${window.location.origin}/api/xtream-proxy?url=${encodeURIComponent(url)}`
-            : url;
+        let type = await probeMedia(url);
+        if (!type) {
+            type = ext === 'm3u8' ? HLS_TYPE : 'video/mp4';
+        }
         streams.push({
             name: type === HLS_TYPE ? 'RukaTv HLS' : 'RukaTv MP4',
             title,
-            // proxyHeaders would make the core route this through a local
-            // Stremio server, even though Render already serves browser media.
-            url: playableUrl
+            url: url
         });
-        // Prefer the authenticated server resolver; external media is a fallback.
         break;
     }
+
+    if (streams.length === 0) {
+        streams.push({
+            name: 'RukaTv Stream',
+            title,
+            url: mainUrl
+        });
+    }
+
     return streams;
 }
 
